@@ -15,4 +15,7 @@ simulation/output/
 # vscode
 .vscode
 
+# Executables
+*.exe
+
 
