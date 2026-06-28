@@ -18,6 +18,9 @@ typedef logic signed [`DWORDBITS-1:0] dword_t;
 // PIPE PARALLELIZATION - number of bodies processed at once
 `define NUMPIPES 20
 
+// N rounded up to a multiple of NUMPIPES, so per-batch tiling never indexes out of range
+`define N_PAD (((`N + `NUMPIPES - 1) / `NUMPIPES) * `NUMPIPES)
+
 // LANE PARALLELIZATION - number of accelerations calculated at once
 `define NUMLANES 4
 
@@ -52,6 +55,22 @@ typedef struct {
     word_t az [`N-1:0];
     word_t m [`N-1:0];
 } State;
+
+// padded to N_PAD so accelerator.sv can tile NUMPIPES-wide batches without
+// the last (ragged) batch indexing past the end of the array; padding
+// slots get mass 0 so they exert/feel no force
+typedef struct {
+    word_t rx [`N_PAD-1:0];
+    word_t ry [`N_PAD-1:0];
+    word_t rz [`N_PAD-1:0];
+    word_t vx [`N_PAD-1:0];
+    word_t vy [`N_PAD-1:0];
+    word_t vz [`N_PAD-1:0];
+    word_t ax [`N_PAD-1:0];
+    word_t ay [`N_PAD-1:0];
+    word_t az [`N_PAD-1:0];
+    word_t m [`N_PAD-1:0];
+} PaddedState;
 
 
 `endif

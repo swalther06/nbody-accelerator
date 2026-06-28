@@ -1,14 +1,13 @@
 `include "defs.svh"
 `include "inv_pwr_3d2_unit.sv"
 
-module accel_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
+module accel_unit #(parameter ITERS = 2) (
     input clk,
     input rst,
-
+    input logic restart,
     input word_t rx_i,
     input word_t ry_i,
     input word_t rz_i, 
-
     input word_t rx_j,
     input word_t ry_j, 
     input word_t rz_j,
@@ -20,12 +19,20 @@ module accel_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
 
     output logic accel_valid
 );
-    dword_t [LATENCY-1:0] mdx_reg, mdy_reg, mdz_reg;
+    localparam LATENCY = ITERS + 2;
+    // mdx/mdy/mdz must stay aligned with inv_res, which trails denom by LATENCY
+    // cycles through inv_pwr_3d2_unit *plus* the extra denom_reg stage below
+    localparam MD_DELAY = LATENCY + 1;
+
+    dword_t [MD_DELAY-1:0] mdx_reg, mdy_reg, mdz_reg;
     dword_t denom_reg;
-    dword_t inv_res_reg;
 
     logic valid;
     logic valid_reg;
+
+    word_t ax_i_reg;
+    word_t ay_i_reg;
+    word_t az_i_reg;
 
     dword_t dx, dy, dz, denom, inv_res;
     always_comb begin
@@ -40,6 +47,7 @@ module accel_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
         .clk,
         .rst,
         .x(denom_reg),
+        .restart(restart),
 
         .valid(valid),
         .result(inv_res)
@@ -57,20 +65,24 @@ module accel_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
     always_ff @(posedge clk) begin
         if (rst) begin
             denom_reg <= 0;
-            inv_res_reg <= 0;
             mdx_reg <= 0;
             mdy_reg <= 0;
             mdz_reg <= 0;
             valid_reg <= 0;
+            ax_i_reg <= 0;
+            ay_i_reg <= 0;
+            az_i_reg <= 0;
         end else begin
             denom_reg <= denom;
-            inv_res_reg <= inv_res;
             valid_reg <= valid;
+            ax_i_reg <= word_t'((mdx_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
+            ay_i_reg <= word_t'((mdy_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
+            az_i_reg <= word_t'((mdz_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
 
             mdx_reg[0] <= mdx;
             mdy_reg[0] <= mdy;
             mdz_reg[0] <= mdz;
-            for (int i = 1; i < LATENCY; i++) begin
+            for (int i = 1; i < MD_DELAY; i++) begin
                 mdx_reg[i] <= mdx_reg[i-1];
                 mdy_reg[i] <= mdy_reg[i-1];
                 mdz_reg[i] <= mdz_reg[i-1];
@@ -78,12 +90,11 @@ module accel_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
         end
     end
 
-
-    assign ax_i_out = word_t'((mdx_reg[LATENCY-1] * inv_res_reg) >> `SEEDFRAC);
-    assign ay_i_out = word_t'((mdy_reg[LATENCY-1] * inv_res_reg) >> `SEEDFRAC);
-    assign az_i_out = word_t'((mdz_reg[LATENCY-1] * inv_res_reg) >> `SEEDFRAC);
-
-    assign accel_valid = valid_reg;
-
+    always_comb begin
+        ax_i_out = ax_i_reg;
+        ay_i_out = ay_i_reg;
+        az_i_out = az_i_reg;
+        accel_valid = valid_reg;
+    end
 
 endmodule

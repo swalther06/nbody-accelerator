@@ -1,10 +1,11 @@
 `include "defs.svh"
 
-module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
+module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
     input clk,
     input rst,
-
     input dword_t x,
+    input logic restart,
+
     output logic valid,
     output dword_t result
 );
@@ -25,6 +26,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
     dword_t rsqrt_out;
     logic parity;
     logic [`LUTBITS-1:0] mantissa;
+    dword_t inv_pwr3_reg;
 
 
     // MSB DETERMINATION
@@ -94,7 +96,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
     // REGISTER UPDATE
     logic [$clog2(LATENCY+1)-1:0] fill_ctr;
     always_ff @(posedge clk) begin
-        if (rst) fill_ctr <= 0;
+        if (rst | restart) fill_ctr <= 0;
         else if (fill_ctr < LATENCY[$clog2(LATENCY+1)-1:0]) fill_ctr <= fill_ctr + 1;
     end
 
@@ -105,11 +107,13 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
             half_regs <= '{default: '0};
             msb_reg <= 0;
             x_reg <= 0;
+            inv_pwr3_reg <= 0;
 
         end else begin
             guesses_regs <= guesses_out;
             msb_reg <= msb;
             x_reg <= x;
+            inv_pwr3_reg <= inv_pwr3;
 
             a_regs[0] <= a;
             half_regs[0] <= half;
@@ -139,7 +143,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 2) (
 
     // OUTPUT ASSIGNMENTS
     assign valid = (fill_ctr == LATENCY[$clog2(LATENCY+1)-1:0]);
-    assign result = inv_pwr3;
+    assign result = inv_pwr3_reg;
     
 
 endmodule

@@ -17,11 +17,3 @@ module rsqrt_newton_step(
     assign step = (y * term) >> `SEEDFRAC;
 
 endmodule
-
-// function automatic dword_t rsqrt_newton_step(input dword_t a, input dword_t y);
-//     dword_t y2   = (y * y)  >> `SEEDFRAC;          // Q(F)
-//     dword_t ay2  = (a * y2) >> `SEEDFRAC;          // Q(F), ~1.0
-//     dword_t term = (3 << (`SEEDFRAC-1)) - (ay2 >> 1);  // 1.5 - 0.5*a*y^2, Q(F)
-//     return (y * term) >> `SEEDFRAC;                // Q(F)
-// endfunction
-
