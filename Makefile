@@ -1,4 +1,4 @@
-.PHONY: help sync fm blm render lut clean
+.PHONY: help sync fm blm render lut st_init simulate clean
 
 help:
 	@echo "Available targets:"
@@ -7,32 +7,44 @@ help:
 	@echo "  blm     - run the bit-level model (ORBIT=<config>)"
 	@echo "  render  - render simulation output"
 	@echo "  lut     - generate the Newton LUT header"
+	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
+	@echo "  simulate - run accelerator_tb.sv in VCS"
 	@echo "  clean   - remove build artifacts and output"
 	@echo ""
 	@echo "Available ORBIT configs:"
-	@uv run python -c "from simulation.orbits import CONFIGS; print('\n'.join(f'  {name}' for name in CONFIGS))"
+	@uv run python -c "from modeling.orbits import CONFIGS; print('\n'.join(f'  {name}' for name in CONFIGS))"
 
 sync:
 	uv sync
 
 fm:
-	mkdir -p simulation/output
-	uv run python simulation/float64_model.py $(ORBIT)
+	mkdir -p output
+	uv run python modeling/float64_model.py $(ORBIT)
 
 blm:
-	mkdir -p simulation/output
-	gcc simulation/bitlevel_model.c simulation/orbits.c -o simulation/bitlevel_model.exe -lm
-	./simulation/bitlevel_model.exe $(ORBIT)
+	mkdir -p output
+	gcc modeling/bitlevel_model.c modeling/orbits.c -o modeling/bitlevel_model.exe -lm
+	./modeling/bitlevel_model.exe $(ORBIT)
 
 render:
-	uv run python simulation/render.py
+	uv run python modeling/render.py
 
 lut:
-	gcc simulation/gen_lut.c -o simulation/gen_lut.exe -lm
-	simulation/gen_lut.exe > simulation/newton_lut.h
+	gcc modeling/gen_lut.c -o modeling/gen_lut.exe -lm
+	modeling/gen_lut.exe > modeling/newton_lut.h
+
+st_init:
+	mkdir -p simulation
+	gcc modeling/gen_st_init.c modeling/orbits.c -o modeling/gen_st_init.exe -lm
+	./modeling/gen_st_init.exe $(ORBIT)
+
+simulate:
+	mkdir -p output
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv
 
 clean:
 	rm -f *.exe
-	rm -f simulation/*.exe
-	rm -f simulation/output/*
+	rm -f modeling/*.exe
+	rm -f output/*
+	rm -rf simulation/csrc simulation/simv simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/*.vpd simulation/*.fsdb
 
