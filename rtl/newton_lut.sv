@@ -7,7 +7,7 @@ module newton_lut(
 );
 
     dword_t lut [1:0][`LUTSIZE-1:0];
-    initial $readmemh("newton_lut.hex", lut);
+    initial $readmemh("../rtl/newton_lut.hex", lut);
 
     assign val = lut[parity][mantissa];
 

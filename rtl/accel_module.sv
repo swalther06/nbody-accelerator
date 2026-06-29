@@ -1,6 +1,4 @@
 `include "defs.svh"
-`include "accel_unit.sv"
-
 
 module accel_module(
     input clk,
@@ -41,10 +39,13 @@ module accel_module(
     word_t ay_wire [`NUMLANES-1:0];
     word_t az_wire [`NUMLANES-1:0];
 
-    logic au_valid;
+    logic [`NUMLANES-1:0] au_valid;
     logic done_accumulating;
 
-    int jump = in_ctr*`NUMLANES;
+    // tracks in_ctr combinationally (a module-scope declaration assignment
+    // would only initialize once at time 0, not follow in_ctr)
+    int jump;
+    always_comb jump = in_ctr*`NUMLANES;
 
     always_ff @(posedge clk) begin
         if (rst | restart) in_ctr <= 0;
@@ -69,7 +70,7 @@ module accel_module(
                 .ay_i_out(ay_wire[i]),
                 .az_i_out(az_wire[i]),
 
-                .accel_valid(au_valid)
+                .accel_valid(au_valid[i])
             );
         end
     endgenerate
@@ -82,7 +83,7 @@ module accel_module(
             done_accumulating <= 0;
             cycle_ctr <= 0;
         end else begin
-            if (au_valid && cycle_ctr < num_cycles) begin
+            if (au_valid[0] && cycle_ctr < num_cycles) begin
                 ax_reg <= ax_reg + ax_wire.sum();
                 ay_reg <= ay_reg + ay_wire.sum();
                 az_reg <= az_reg + az_wire.sum();

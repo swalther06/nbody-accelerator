@@ -1,5 +1,4 @@
 `include "defs.svh"
-`include "inv_pwr_3d2_unit.sv"
 
 module accel_unit #(parameter ITERS = 2) (
     input clk,
