@@ -1,52 +1,22 @@
 // gen_st_init.c -- generates a $readmemh-compatible memory file holding the
 // fixed-point initial State (positions/velocities/mass plus seeded
 // accelerations) for one orbit config, for accelerator_tb.sv to load into
-// st_init.
+// st_init. Uses bitlevel_model.h's bit-exact seed_accelerations (the same
+// LUT/Newton-Raphson rsqrt path as bitlevel_model.c and the RTL), not a
+// simplified double-precision approximation -- for well-behaved orbits the
+// difference is negligible, but for chaotic configs even a couple ULPs of
+// seed mismatch diverges into a completely different trajectory within
+// ~100 steps.
 // Compile:  gcc modeling/gen_st_init.c modeling/orbits.c -o modeling/gen_st_init.exe -lm
 // Run:      ./modeling/gen_st_init.exe figure8
 #include <stdio.h>
 #include <stdint.h>
-#include <math.h>
 
-#include "definitions.h"
-#include "state.h"
+#include "bitlevel_model.h"
 #include "orbits.h"
 
 static inline int32_t to_fixed(double x) {
     return (int32_t)llround(x * (double)FRAC_SCALE);
-}
-
-// Real-valued gravity seed, matching float64_model.py's seed_accelerations --
-// not the LUT-approximated hardware path, since this is just the t=0
-// bootstrap value and the design already tolerates fixed-point-vs-golden-model
-// error everywhere else.
-static void seed_accelerations(State *state) {
-    const double eps_squared = 1e-5 * 1e-5;
-
-    double rx[N], ry[N], rz[N], m[N];
-    for (int i = 0; i < N; i++) {
-        rx[i] = state->rx[i] / (double)FRAC_SCALE;
-        ry[i] = state->ry[i] / (double)FRAC_SCALE;
-        rz[i] = state->rz[i] / (double)FRAC_SCALE;
-        m[i]  = state->m[i]  / (double)FRAC_SCALE;
-    }
-
-    for (int i = 0; i < N; i++) {
-        double ax = 0, ay = 0, az = 0;
-        for (int j = 0; j < N; j++) {
-            if (m[j] == 0.0) continue;  // padding slot, exerts no force
-            double dx = rx[j] - rx[i];
-            double dy = ry[j] - ry[i];
-            double dz = rz[j] - rz[i];
-            double denom = pow(dx*dx + dy*dy + dz*dz + eps_squared, 1.5);
-            ax += m[j] * dx / denom;
-            ay += m[j] * dy / denom;
-            az += m[j] * dz / denom;
-        }
-        state->ax[i] = to_fixed(ax);
-        state->ay[i] = to_fixed(ay);
-        state->az[i] = to_fixed(az);
-    }
 }
 
 int main(int argc, char *argv[]) {

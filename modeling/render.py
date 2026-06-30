@@ -69,7 +69,7 @@ def render_video(states, path, fps=30, stride=10):
 def main():
     output_dir = os.path.join(os.path.dirname(__file__), "..", "output")
     states = load_states_csv(os.path.join(output_dir, "states.csv"))
-    render_video(states, os.path.join(output_dir, "orbit.mp4"), fps=60, stride=1)
+    render_video(states, os.path.join(output_dir, "orbit.mp4"), fps=60, stride=5)
 
 
 if __name__ == "__main__":
