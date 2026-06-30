@@ -59,7 +59,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
         norm_shift = (`DENOMFRAC - `SEEDFRAC) + k_even;
         a = (norm_shift >= 0) ? (x_reg >> norm_shift) : (x_reg << (-norm_shift));
 
-        half = k_even >> 1;
+        half = k_even >>> 1;
         rsqrt_out = (half_regs[ITERS-1] >= 0) 
             ? (guesses_regs[ITERS-1] >> half_regs[ITERS-1]) 
             : (guesses_regs[ITERS-1] << (-half_regs[ITERS-1]));

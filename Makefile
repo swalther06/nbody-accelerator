@@ -8,7 +8,7 @@ help:
 	@echo "  render  - render simulation output"
 	@echo "  lut     - generate the Newton LUT header"
 	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
-	@echo "  simulate - run accelerator_tb.sv in VCS"
+	@echo "  simulate - run accelerator_tb.sv in VCS (ORBIT=<config>)"
 	@echo "  clean   - remove build artifacts and output"
 	@echo ""
 	@echo "Available ORBIT configs:"
@@ -38,9 +38,9 @@ st_init:
 	gcc modeling/gen_st_init.c modeling/orbits.c -o modeling/gen_st_init.exe -lm
 	./modeling/gen_st_init.exe $(ORBIT)
 
-simulate:
+simulate: st_init
 	mkdir -p output
-	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps -debug_access+all ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv
 
 clean:
 	rm -f *.exe

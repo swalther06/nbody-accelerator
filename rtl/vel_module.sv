@@ -34,9 +34,9 @@ module vel_module(
             vy_new_reg <= 0;
             vz_new_reg <= 0;
         end else begin
-            vx_new_reg <= vx_half + word_t'((dword_t'(ax_new) * dt) >> (`FRACBITS + 1));
-            vy_new_reg <= vy_half + word_t'((dword_t'(ay_new) * dt) >> (`FRACBITS + 1));
-            vz_new_reg <= vz_half + word_t'((dword_t'(az_new) * dt) >> (`FRACBITS + 1));
+            vx_new_reg <= vx_half + word_t'((dword_t'(ax_new) * dt) >>> (`FRACBITS + 1));
+            vy_new_reg <= vy_half + word_t'((dword_t'(ay_new) * dt) >>> (`FRACBITS + 1));
+            vz_new_reg <= vz_half + word_t'((dword_t'(az_new) * dt) >>> (`FRACBITS + 1));
         end
     end
 

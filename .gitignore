@@ -27,5 +27,6 @@ simulation/vc_hdrs.h
 simulation/DVEfiles/
 simulation/*.vpd
 simulation/*.fsdb
+simulation/*.mem
 
 

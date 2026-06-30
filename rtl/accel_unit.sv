@@ -28,6 +28,11 @@ module accel_unit #(parameter ITERS = 2) (
 
     logic valid;
     logic valid_reg;
+    // ax_i_reg/ay_i_reg/az_i_reg register the product of mdx_reg[MD_DELAY-1]
+    // and inv_res, both of which only become valid the SAME cycle valid_reg
+    // itself does -- so accel_valid needs a second stage to match the extra
+    // register hop ax_i_reg takes beyond its own inputs settling
+    logic valid_reg2;
 
     word_t ax_i_reg;
     word_t ay_i_reg;
@@ -55,9 +60,10 @@ module accel_unit #(parameter ITERS = 2) (
 
     dword_t mdx, mdy, mdz;
     always_comb begin
-        mdx = (dword_t'(m_j) * dx) >> `FRACBITS;
-        mdy = (dword_t'(m_j) * dy) >> `FRACBITS;
-        mdz = (dword_t'(m_j) * dz) >> `FRACBITS;
+        // >>> (not >>): dx/dy/dz are frequently negative; >> never sign-extends
+        mdx = (dword_t'(m_j) * dx) >>> `FRACBITS;
+        mdy = (dword_t'(m_j) * dy) >>> `FRACBITS;
+        mdz = (dword_t'(m_j) * dz) >>> `FRACBITS;
     end
 
 
@@ -68,15 +74,22 @@ module accel_unit #(parameter ITERS = 2) (
             mdy_reg <= 0;
             mdz_reg <= 0;
             valid_reg <= 0;
+            valid_reg2 <= 0;
             ax_i_reg <= 0;
             ay_i_reg <= 0;
             az_i_reg <= 0;
         end else begin
             denom_reg <= denom;
-            valid_reg <= valid;
-            ax_i_reg <= word_t'((mdx_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
-            ay_i_reg <= word_t'((mdy_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
-            az_i_reg <= word_t'((mdz_reg[MD_DELAY-1] * inv_res) >> `SEEDFRAC);
+            // inv_pwr_3d2_unit's fill_ctr free-runs (and saturates) while
+            // idle between restarts, so the cycle restart actually fires,
+            // its combinational `valid` can still read the stale pre-reset
+            // (already-saturated) value -- force valid_reg low on that exact
+            // cycle so a restart never latches a glitchy "already done" pulse
+            valid_reg <= restart ? 1'b0 : valid;
+            valid_reg2 <= restart ? 1'b0 : valid_reg;
+            ax_i_reg <= word_t'((mdx_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
+            ay_i_reg <= word_t'((mdy_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
+            az_i_reg <= word_t'((mdz_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
 
             mdx_reg[0] <= mdx;
             mdy_reg[0] <= mdy;
@@ -93,7 +106,7 @@ module accel_unit #(parameter ITERS = 2) (
         ax_i_out = ax_i_reg;
         ay_i_out = ay_i_reg;
         az_i_out = az_i_reg;
-        accel_valid = valid_reg;
+        accel_valid = valid_reg2;
     end
 
 endmodule

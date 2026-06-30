@@ -56,6 +56,9 @@ module accelerator_tb;
     endfunction
 
     initial begin
+        $dumpfile("../output/waves.vcd");
+        $dumpvars(0, accelerator_tb);
+
         $display("Starting accelerator VCS testbench...");
         clk = 0;
         rst = 1;
@@ -80,10 +83,12 @@ module accelerator_tb;
 
         #20;
         rst = 0;
-        // matches the figure8 config's suggested dt (0.01); regenerate
-        // st_init.mem with a different ORBIT and update these to match
+        // dt=0.01 matches every config's suggested dt in modeling/orbits.py
+        // (re-check this if a future config uses a different one).
+        // tend=10.0 (~1000 steps) matches fm/blm's default t_end, so
+        // make fm / make blm / make simulate are directly comparable
         dt = 32'h000028f6;
-        tend = 32'h0000cccd;
+        tend = 32'h0c000000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");

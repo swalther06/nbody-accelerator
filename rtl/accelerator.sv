@@ -11,7 +11,8 @@ module accelerator(
     input word_t tend,
 
     output State st_out,
-    output logic done
+    output logic done,
+    output word_t state_counter
 );
 
     localparam num_cycles = (`N + `NUMPIPES - 1)/`NUMPIPES;
@@ -40,7 +41,30 @@ module accelerator(
     PaddedState cur_state;
     PaddedState next_state;
 
-    int jump = cycle_ctr*`NUMPIPES;
+    // tracks cycle_ctr combinationally (a module-scope declaration assignment
+    // would only initialize once at time 0, not follow cycle_ctr) so it's
+    // always the base index of the batch currently in flight
+    int jump;
+
+    // per-lane outputs for the jump-indexed array fields below: a module
+    // output port can't connect directly to a variable-indexed array element
+    // (the connection is resolved at elaboration time, before jump has a
+    // value), so each lane drives a fixed (genvar-indexed) wire here and a
+    // always_ff scatters it into the padded array using jump
+    word_t rx_new_lane [`NUMPIPES-1:0];
+    word_t ry_new_lane [`NUMPIPES-1:0];
+    word_t rz_new_lane [`NUMPIPES-1:0];
+    word_t vx_half_lane [`NUMPIPES-1:0];
+    word_t vy_half_lane [`NUMPIPES-1:0];
+    word_t vz_half_lane [`NUMPIPES-1:0];
+
+    word_t ax_out_lane [`NUMPIPES-1:0];
+    word_t ay_out_lane [`NUMPIPES-1:0];
+    word_t az_out_lane [`NUMPIPES-1:0];
+
+    word_t vx_new_lane [`NUMPIPES-1:0];
+    word_t vy_new_lane [`NUMPIPES-1:0];
+    word_t vz_new_lane [`NUMPIPES-1:0];
 
     genvar i;
     generate
@@ -53,8 +77,8 @@ module accelerator(
                 .vx_old(cur_state.vx[jump+i]), .vy_old(cur_state.vy[jump+i]), .vz_old(cur_state.vz[jump+i]),
                 .ax_old(cur_state.ax[jump+i]), .ay_old(cur_state.ay[jump+i]), .az_old(cur_state.az[jump+i]),
                 .dt(dt),
-                .rx_new(next_state.rx[jump+i]),  .ry_new(next_state.ry[jump+i]),  .rz_new(next_state.rz[jump+i]),
-                .vx_half(vx_half[jump+i]), .vy_half(vy_half[jump+i]), .vz_half(vz_half[jump+i]),
+                .rx_new(rx_new_lane[i]),  .ry_new(ry_new_lane[i]),  .rz_new(rz_new_lane[i]),
+                .vx_half(vx_half_lane[i]), .vy_half(vy_half_lane[i]), .vz_half(vz_half_lane[i]),
                 .pos_valid(pos_v[i])
             );
         end
@@ -69,7 +93,7 @@ module accelerator(
                 .rx_new(next_state.rx), .ry_new(next_state.ry), .rz_new(next_state.rz),
                 .m(cur_state.m),
                 .p_i($clog2(`N_PAD)'(jump+i)),
-                .ax_out(next_state.ax[jump+i]), .ay_out(next_state.ay[jump+i]), .az_out(next_state.az[jump+i]),
+                .ax_out(ax_out_lane[i]), .ay_out(ay_out_lane[i]), .az_out(az_out_lane[i]),
                 .acc_valid(acc_v[i])
             );
         end
@@ -84,17 +108,57 @@ module accelerator(
                 .vx_half(vx_half[jump+i]), .vy_half(vy_half[jump+i]), .vz_half(vz_half[jump+i]),
                 .ax_new(next_state.ax[jump+i]), .ay_new(next_state.ay[jump+i]), .az_new(next_state.az[jump+i]),
                 .dt(dt),
-                .vx_new(next_state.vx[jump+i]), .vy_new(next_state.vy[jump+i]), .vz_new(next_state.vz[jump+i]),
+                .vx_new(vx_new_lane[i]), .vy_new(vy_new_lane[i]), .vz_new(vz_new_lane[i]),
                 .vel_valid(vel_v[i])
             );
         end
     endgenerate
+
+    // scatter each batch's lane outputs into their jump-indexed slot, gated
+    // on both that phase's own done pulse AND the FSM actually being in that
+    // phase -- pos_valid/acc_valid/vel_valid latch high and never self-clear,
+    // and accel_module's in_ctr saturates instead of idling once its own
+    // restart input drops, so it can spuriously re-accumulate (over the
+    // zero-mass padding bodies) and re-pulse acc_valid well after the FSM
+    // has already moved to the next phase; scoping each scatter to its phase
+    // matches how kd_restart/fe_restart/sk_restart are already scoped above
+    always_ff @(posedge clk) begin
+        if (fsm == S_KICKDRIFT && kd_done) begin
+            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+                next_state.rx[jump+lane] <= rx_new_lane[lane];
+                next_state.ry[jump+lane] <= ry_new_lane[lane];
+                next_state.rz[jump+lane] <= rz_new_lane[lane];
+                vx_half[jump+lane] <= vx_half_lane[lane];
+                vy_half[jump+lane] <= vy_half_lane[lane];
+                vz_half[jump+lane] <= vz_half_lane[lane];
+                next_state.m[jump+lane] <= cur_state.m[jump+lane];
+            end
+        end
+
+        if (fsm == S_FORCE && fe_done) begin
+            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+                next_state.ax[jump+lane] <= ax_out_lane[lane];
+                next_state.ay[jump+lane] <= ay_out_lane[lane];
+                next_state.az[jump+lane] <= az_out_lane[lane];
+            end
+        end
+
+        if (fsm == S_SECONDKICK && sk_done) begin
+            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+                next_state.vx[jump+lane] <= vx_new_lane[lane];
+                next_state.vy[jump+lane] <= vy_new_lane[lane];
+                next_state.vz[jump+lane] <= vz_new_lane[lane];
+            end
+        end
+    end
 
 
     logic more_steps;
     logic last_cycle;
 
     always_comb begin
+        jump = cycle_ctr*`NUMPIPES;
+
         kd_done = pos_v[0];
         fe_done = acc_v[0];
         sk_done = vel_v[0];
@@ -127,6 +191,18 @@ module accelerator(
         endcase
     end
 
+    // delays the commit by one cycle past sk_done&&last_cycle: the SK-phase
+    // scatter (above) and the commit below are both NBA-driven off sk_done
+    // on the same edge, so committing on that same cycle would read
+    // next_state.vx/vy/vz at their pre-edge (one-cycle-stale) value, racing
+    // the scatter's own write -- delaying the commit by one cycle lets the
+    // scatter land first
+    logic commit_ready;
+    always_ff @(posedge clk) begin
+        if (rst) commit_ready <= 0;
+        else commit_ready <= (fsm == S_SECONDKICK) && sk_done && last_cycle;
+    end
+
     // tiling N to NUMPIPES: advance cycle_ctr through each batch of a phase,
     // wrapping back to 0 once the phase has covered all N particles
     always_ff @(posedge clk) begin
@@ -149,6 +225,7 @@ module accelerator(
             fsm  <= S_IDLE;
             t    <= 0;
             done <= 0;
+            state_counter <= 0;
         end else begin
             case (fsm)
                 S_IDLE: begin
@@ -181,6 +258,7 @@ module accelerator(
                         end
                         t    <= 0;
                         done <= 0;
+                        state_counter <= 0;
                         fsm  <= S_KICKDRIFT;
                     end
                 end
@@ -197,9 +275,10 @@ module accelerator(
 
                 // reads B.v(=v_half) + B.a; overwrite B.v with v_new, commit B -> A, tick t
                 S_SECONDKICK: begin
-                    if (sk_done && last_cycle) begin
+                    if (commit_ready) begin
                         cur_state <= next_state;
                         t    <= t + dt;
+                        state_counter <= state_counter + 1;
                         if (more_steps) begin
                             fsm <= S_KICKDRIFT;
                         end else begin
@@ -233,14 +312,5 @@ module accelerator(
             assign st_out.m[i]  = cur_state.m[i];
         end
     endgenerate
-
-    // pass in initial state
-    // define `NUMPIPES pos_modules
-    // replace state.postitions with nwe positions
-    // feed new positions into `NUMPIPES accel_modules
-    // replace state.accel with new accelerations
-    // feed new accelerations into `NUMPIPES vel_modules
-    // replace state.vel with new velocities
-    // write state to memory
 
 endmodule
