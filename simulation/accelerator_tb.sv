@@ -56,8 +56,13 @@ module accelerator_tb;
     endfunction
 
     initial begin
-        $dumpfile("../output/waves.vcd");
-        $dumpvars(0, accelerator_tb);
+        // off by default -- +VCD (make sim VCD=1) opts in: a full-hierarchy
+        // dump over a long run (e.g. solar_system's ~80000 steps) can reach
+        // tens of GB and blow through a disk quota
+        if ($test$plusargs("VCD")) begin
+            $dumpfile("../output/waves.vcd");
+            $dumpvars(0, accelerator_tb);
+        end
 
         $display("Starting accelerator VCS testbench...");
         clk = 0;
@@ -83,12 +88,13 @@ module accelerator_tb;
 
         #20;
         rst = 0;
-        // dt=0.01 matches every config's suggested dt in modeling/orbits.py
-        // (re-check this if a future config uses a different one).
-        // tend=40.0 (~4000 steps) matches fm/blm's default t_end, so
-        // make fm / make blm / make simulate are directly comparable
-        dt = 32'h000028f6;
-        tend = 32'h02800000;
+        // dt=0.0005 matches solar_system's suggested dt in modeling/orbits.csv
+        // (re-check this if simulating a config with a different dt).
+        // tend=5.0 (~10000 steps) matches float64_model.py's hardcoded
+        // t_end, so make fm / make blm / make simulate are directly
+        // comparable
+        dt = 32'h0000020c;
+        tend = 32'h00500000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");

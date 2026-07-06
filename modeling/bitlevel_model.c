@@ -27,20 +27,24 @@ static void inline create_particle(State *state, int i,
     state->m[i] = m;
 }
 
+static inline int64_t round_shift(int64_t x, int shift) {
+    return (x + ((int64_t)1 << (shift - 1))) >> shift;
+}
+
 static void inline calculate_new_positions(int32_t rx, int32_t ry, int32_t rz,
     int32_t vx, int32_t vy, int32_t vz, int32_t ax, int32_t ay, int32_t az, int32_t dt,
     int32_t* rx_new, int32_t* ry_new, int32_t* rz_new,
     int32_t* vx_half, int32_t* vy_half, int32_t* vz_half) {
 
         // first half-kick: v_half = v + (a*dt)/2.  a*dt is Q40; >>(FRAC_BITS+1) -> Q20 and halves.
-        *vx_half = vx + (int32_t)(((int64_t)ax * dt) >> (FRAC_BITS + 1));
-        *vy_half = vy + (int32_t)(((int64_t)ay * dt) >> (FRAC_BITS + 1));
-        *vz_half = vz + (int32_t)(((int64_t)az * dt) >> (FRAC_BITS + 1));
+        *vx_half = vx + (int32_t)round_shift((int64_t)ax * dt, FRAC_BITS + 1);
+        *vy_half = vy + (int32_t)round_shift((int64_t)ay * dt, FRAC_BITS + 1);
+        *vz_half = vz + (int32_t)round_shift((int64_t)az * dt, FRAC_BITS + 1);
 
         // drift: r_new = r + v_half*dt.  v_half*dt is Q40; >>FRAC_BITS -> Q20 (no halving).
-        *rx_new = rx + (int32_t)(((int64_t)(*vx_half) * dt) >> FRAC_BITS);
-        *ry_new = ry + (int32_t)(((int64_t)(*vy_half) * dt) >> FRAC_BITS);
-        *rz_new = rz + (int32_t)(((int64_t)(*vz_half) * dt) >> FRAC_BITS);
+        *rx_new = rx + (int32_t)round_shift((int64_t)(*vx_half) * dt, FRAC_BITS);
+        *ry_new = ry + (int32_t)round_shift((int64_t)(*vy_half) * dt, FRAC_BITS);
+        *rz_new = rz + (int32_t)round_shift((int64_t)(*vz_half) * dt, FRAC_BITS);
 }
 
 static void inline calculate_new_velocity(int32_t vx_half, int32_t vy_half, int32_t vz_half,
@@ -48,44 +52,44 @@ static void inline calculate_new_velocity(int32_t vx_half, int32_t vy_half, int3
     int32_t* vx_new, int32_t* vy_new, int32_t* vz_new, int32_t dt) {
 
         // second half-kick: v_new = v_half + (a_new*dt)/2.  Only the a_new*dt term is shifted/halved.
-        *vx_new = vx_half + (int32_t)(((int64_t)ax_new * dt) >> (FRAC_BITS + 1));
-        *vy_new = vy_half + (int32_t)(((int64_t)ay_new * dt) >> (FRAC_BITS + 1));
-        *vz_new = vz_half + (int32_t)(((int64_t)az_new * dt) >> (FRAC_BITS + 1));
+        *vx_new = vx_half + (int32_t)round_shift((int64_t)ax_new * dt, FRAC_BITS + 1);
+        *vy_new = vy_half + (int32_t)round_shift((int64_t)ay_new * dt, FRAC_BITS + 1);
+        *vz_new = vz_half + (int32_t)round_shift((int64_t)az_new * dt, FRAC_BITS + 1);
 }
 
-static void debug_pair_force(int i, int j, const State *s) {
-    int64_t dx = (int64_t)s->rx[j] - (int64_t)s->rx[i];
-    int64_t dy = (int64_t)s->ry[j] - (int64_t)s->ry[i];
-    int64_t dz = (int64_t)s->rz[j] - (int64_t)s->rz[i];
-    int64_t denom = dx*dx + dy*dy + dz*dz + EPS_SQUARED;
-    int64_t inv_sqrt = fixed_rsqrt(denom);
-    int64_t inv_sqrt_2 = (inv_sqrt * inv_sqrt) >> SEED_FRAC;
-    int64_t inv_sqrt_3 = (inv_sqrt_2 * inv_sqrt) >> SEED_FRAC;
-    int64_t mdx = ((int64_t)s->m[j] * dx) >> FRAC_BITS;
-    int64_t mdy = ((int64_t)s->m[j] * dy) >> FRAC_BITS;
-    int64_t mdz = ((int64_t)s->m[j] * dz) >> FRAC_BITS;
-    int32_t ax = (int32_t)((mdx * inv_sqrt_3) >> SEED_FRAC);
-    int32_t ay = (int32_t)((mdy * inv_sqrt_3) >> SEED_FRAC);
-    int32_t az = (int32_t)((mdz * inv_sqrt_3) >> SEED_FRAC);
-    int msb = -1;
-    for (int b = 63; b >= 0; b--) if (denom & (1LL << b)) { msb = b; break; }
-    int k = msb - REF;
-    int parity = k & 1;
-    int k_even = k - parity;
-    int shift = msb - NEWTON_LUT_BITS;
-    int64_t mantissa = (shift >= 0) ? (denom >> shift) & ((1LL << NEWTON_LUT_BITS) - 1)
-                                    : (denom << (-shift)) & ((1LL << NEWTON_LUT_BITS) - 1);
-    int norm_shift = (DENOM_FRAC - SEED_FRAC) + k_even;
-    int64_t a_norm = (norm_shift >= 0) ? (denom >> norm_shift) : (denom << (-norm_shift));
-    int half_val = k_even >> 1;
-    int lut_index = ((int)parity << NEWTON_LUT_BITS) | (int)mantissa;
-    printf("  pair(%d,%d): dx=%lld dy=%lld denom=%lld\n", i, j, dx, dy, denom);
-    printf("    msb=%d parity=%d k_even=%d half=%d mantissa=%lld lut_idx=%d lut_seed=%lld\n",
-           msb, parity, k_even, half_val, mantissa, lut_index, NEWTON_LUT[lut_index]);
-    printf("    a_norm=%lld inv_sqrt=%lld inv_sqrt_2=%lld inv_sqrt_3=%lld\n",
-           a_norm, inv_sqrt, inv_sqrt_2, inv_sqrt_3);
-    printf("    mdx=%lld mdy=%lld ax=%d ay=%d az=%d\n", mdx, mdy, ax, ay, az);
-}
+// static void debug_pair_force(int i, int j, const State *s) {
+//     int64_t dx = (int64_t)s->rx[j] - (int64_t)s->rx[i];
+//     int64_t dy = (int64_t)s->ry[j] - (int64_t)s->ry[i];
+//     int64_t dz = (int64_t)s->rz[j] - (int64_t)s->rz[i];
+//     int64_t denom = dx*dx + dy*dy + dz*dz + EPS_SQUARED;
+//     int64_t inv_sqrt = fixed_rsqrt(denom);
+//     int64_t inv_sqrt_2 = (inv_sqrt * inv_sqrt) >> SEED_FRAC;
+//     int64_t inv_sqrt_3 = (inv_sqrt_2 * inv_sqrt) >> SEED_FRAC;
+//     int64_t mdx = ((int64_t)s->m[j] * dx) >> FRAC_BITS;
+//     int64_t mdy = ((int64_t)s->m[j] * dy) >> FRAC_BITS;
+//     int64_t mdz = ((int64_t)s->m[j] * dz) >> FRAC_BITS;
+//     int32_t ax = (int32_t)((mdx * inv_sqrt_3) >> SEED_FRAC);
+//     int32_t ay = (int32_t)((mdy * inv_sqrt_3) >> SEED_FRAC);
+//     int32_t az = (int32_t)((mdz * inv_sqrt_3) >> SEED_FRAC);
+//     int msb = -1;
+//     for (int b = 63; b >= 0; b--) if (denom & (1LL << b)) { msb = b; break; }
+//     int k = msb - REF;
+//     int parity = k & 1;
+//     int k_even = k - parity;
+//     int shift = msb - NEWTON_LUT_BITS;
+//     int64_t mantissa = (shift >= 0) ? (denom >> shift) & ((1LL << NEWTON_LUT_BITS) - 1)
+//                                     : (denom << (-shift)) & ((1LL << NEWTON_LUT_BITS) - 1);
+//     int norm_shift = (DENOM_FRAC - SEED_FRAC) + k_even;
+//     int64_t a_norm = (norm_shift >= 0) ? (denom >> norm_shift) : (denom << (-norm_shift));
+//     int half_val = k_even >> 1;
+//     int lut_index = ((int)parity << NEWTON_LUT_BITS) | (int)mantissa;
+//     printf("  pair(%d,%d): dx=%lld dy=%lld denom=%lld\n", i, j, dx, dy, denom);
+//     printf("    msb=%d parity=%d k_even=%d half=%d mantissa=%lld lut_idx=%d lut_seed=%lld\n",
+//            msb, parity, k_even, half_val, mantissa, lut_index, NEWTON_LUT[lut_index]);
+//     printf("    a_norm=%lld inv_sqrt=%lld inv_sqrt_2=%lld inv_sqrt_3=%lld\n",
+//            a_norm, inv_sqrt, inv_sqrt_2, inv_sqrt_3);
+//     printf("    mdx=%lld mdy=%lld ax=%d ay=%d az=%d\n", mdx, mdy, ax, ay, az);
+// }
 
 static double calculate_total_energy(const State *s) {
     double ke = 0.0;
@@ -161,8 +165,9 @@ int main(int argc, char *argv[]){
     int32_t dt = (int32_t)llround(dt_real * (double)FRAC_SCALE);
 
     seed_accelerations(&state);
-    static State states[10000];
-    static double energies[10000];
+    int32_t capacity = (int32_t)(t_end / dt) + 2;
+    State *states = malloc((size_t)capacity * sizeof(State));
+    double *energies = malloc((size_t)capacity * sizeof(double));
     int32_t size = 0;
     states[size] = state;
     energies[size] = calculate_total_energy(&state);
@@ -214,17 +219,20 @@ int main(int argc, char *argv[]){
     printf("Final energy:   %.6f\n", ef);
     printf("Relative drift: %.3f%%\n", 100.0 * (ef - e0) / fabs(e0));
     // find the first step where energy drift exceeds 1%
-    for (int s = 1; s < size; s++) {
-        double drift = fabs((energies[s] - e0) / e0);
-        if (drift > 0.01) {
-            double t_real = s * ((double)dt / (double)FRAC_SCALE);
-            printf("First >1%% drift at step %d (t=%.3f): E=%.6f (drift=%.3f%%)\n",
-                   s, t_real, energies[s], 100.0*drift);
-            break;
-        }
-    }
+    // for (int s = 1; s < size; s++) {
+    //     double drift = fabs((energies[s] - e0) / e0);
+    //     if (drift > 0.01) {
+    //         double t_real = s * ((double)dt / (double)FRAC_SCALE);
+    //         printf("First >1%% drift at step %d (t=%.3f): E=%.6f (drift=%.3f%%)\n",
+    //                s, t_real, energies[s], 100.0*drift);
+    //         break;
+    //     }
+    // }
 
     write_states_csv(states, size, dt, "output/states.csv");
+
+    free(states);
+    free(energies);
 
     return 0;
 }

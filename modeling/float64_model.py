@@ -139,7 +139,7 @@ def main(orbit_type="figure8"):
     N = 10
 
     t = 0
-    t_end = 40
+    t_end = 5
 
     state = State(N)
     dt = load_config(orbit_type, state, N)

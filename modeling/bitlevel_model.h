@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <math.h>
 
 #include "newton_lut.h"
@@ -114,7 +115,6 @@ static void inline accumulate_accelerations(State *state, int32_t* ax_tot, int32
 
 static inline void calculate_particle_acceleration(int i, State* st,
     int32_t* ax_reg, int32_t* ay_reg, int32_t* az_reg) {
-
         int num_cycles = ceil(1.0 * N / WIDTH);
         for (int cycles = 0; cycles < num_cycles; ++cycles) {
             State t;
@@ -122,6 +122,7 @@ static inline void calculate_particle_acceleration(int i, State* st,
 
             int jump = cycles*WIDTH;
             for (int j = 0; j < WIDTH && (jump + j) < N; ++j) {
+                if (jump + j == i) continue;
                 calc_scaled_gravitational_acceleration(st->rx[i], st->ry[i], st->rz[i],
                     st->rx[jump + j], st->ry[jump + j], st->rz[jump + j], st->m[jump + j],
                     &t.ax[jump + j], &t.ay[jump + j], &t.az[jump + j]);

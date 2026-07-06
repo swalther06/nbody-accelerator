@@ -32,6 +32,8 @@ typedef logic signed [`DWORDBITS-1:0] dword_t;
 `define SEEDFRAC 28
 `define DENOMFRAC (2 * `FRACBITS)
 
+`define RSHIFT_ROUND(val, shift) (((val) + (dword_t'(1) << ((shift) - 1))) >>> (shift))
+
 `define NEWTONITERS 2
 
 // NEWTON TABLE LOOKUP

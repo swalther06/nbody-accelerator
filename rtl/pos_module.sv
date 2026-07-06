@@ -52,12 +52,12 @@ module pos_module (
             ry_new_reg <= 0;
             rz_new_reg <= 0;
         end else begin
-            vx_half_reg <= vx_old + word_t'((dword_t'(ax_old) * dt) >>> (`FRACBITS + 1));
-            vy_half_reg <= vy_old + word_t'((dword_t'(ay_old) * dt) >>> (`FRACBITS + 1));
-            vz_half_reg <= vz_old + word_t'((dword_t'(az_old) * dt) >>> (`FRACBITS + 1));
-            rx_new_reg <= rx_old + word_t'((dword_t'(vx_half_reg) * dt) >>> `FRACBITS);
-            ry_new_reg <= ry_old + word_t'((dword_t'(vy_half_reg) * dt) >>> `FRACBITS);
-            rz_new_reg <= rz_old + word_t'((dword_t'(vz_half_reg) * dt) >>> `FRACBITS);
+            vx_half_reg <= vx_old + word_t'(`RSHIFT_ROUND(dword_t'(ax_old) * dt, `FRACBITS + 1));
+            vy_half_reg <= vy_old + word_t'(`RSHIFT_ROUND(dword_t'(ay_old) * dt, `FRACBITS + 1));
+            vz_half_reg <= vz_old + word_t'(`RSHIFT_ROUND(dword_t'(az_old) * dt, `FRACBITS + 1));
+            rx_new_reg <= rx_old + word_t'(`RSHIFT_ROUND(dword_t'(vx_half_reg) * dt, `FRACBITS));
+            ry_new_reg <= ry_old + word_t'(`RSHIFT_ROUND(dword_t'(vy_half_reg) * dt, `FRACBITS));
+            rz_new_reg <= rz_old + word_t'(`RSHIFT_ROUND(dword_t'(vz_half_reg) * dt, `FRACBITS));
         end
     end
 
