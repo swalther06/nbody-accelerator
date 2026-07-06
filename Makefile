@@ -8,7 +8,7 @@ help:
 	@echo "  render  - render simulation output"
 	@echo "  lut     - generate the Newton LUT header"
 	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
-	@echo "  sim 	 - run accelerator_tb.sv in VCS (ORBIT=<config>)"
+	@echo "  sim 	 - run accelerator_tb.sv in VCS (ORBIT=<config>, VCD=1 to dump waveform)"
 	@echo "  synth   - run Design Compiler synthesis (outputs to synthesis/)"
 	@echo "  clean   - remove build artifacts and output"
 	@echo ""
@@ -24,7 +24,7 @@ fm:
 
 blm:
 	mkdir -p output
-	gcc modeling/bitlevel_model.c modeling/orbits.c -o modeling/bitlevel_model.exe -lm
+	gcc modeling/bitlevel_model.c modeling/orbits.c -Wall -Werror -o modeling/bitlevel_model.exe -lm
 	./modeling/bitlevel_model.exe $(ORBIT)
 
 render:
@@ -39,9 +39,15 @@ st_init:
 	gcc modeling/gen_st_init.c modeling/orbits.c -o modeling/gen_st_init.exe -lm
 	./modeling/gen_st_init.exe $(ORBIT)
 
+# VCD=1 (or t/true/yes) opts into the waveform dump; off by default since a
+# full-hierarchy dump over a long run (e.g. solar_system's ~80000 steps) can
+# reach tens of GB and blow through a disk quota
+VCD ?= 0
+VCD_ARG := $(if $(filter 0,$(VCD)),,+VCD)
+
 sim: st_init
 	mkdir -p output
-	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps -debug_access+all ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps -debug_access+all ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv $(VCD_ARG)
 
 synth:
 	mkdir -p synthesis/build
