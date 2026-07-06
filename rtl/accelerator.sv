@@ -38,6 +38,8 @@ module accelerator(
     word_t cycle_ctr;
     word_t t;
 
+    logic commit_ready;
+
     PaddedState cur_state;
     PaddedState next_state;
 
@@ -123,6 +125,15 @@ module accelerator(
     // has already moved to the next phase; scoping each scatter to its phase
     // matches how kd_restart/fe_restart/sk_restart are already scoped above
     always_ff @(posedge clk) begin
+        if (restart) begin
+            for (int k = `N; k < `N_PAD; k++) begin
+                next_state.rx[k] <= 0;
+                next_state.ry[k] <= 0;
+                next_state.rz[k] <= 0;
+                next_state.m[k]  <= 0;
+            end
+        end
+
         if (fsm == S_KICKDRIFT && kd_done) begin
             for (int lane = 0; lane < `NUMPIPES; lane++) begin
                 next_state.rx[jump+lane] <= rx_new_lane[lane];
@@ -184,20 +195,14 @@ module accelerator(
 
             S_SECONDKICK: begin
                 sk_restart = sk_done && !last_cycle;
-                kd_restart = sk_done && last_cycle && more_steps;
+                kd_restart = commit_ready && more_steps;
             end
 
             default: ;
         endcase
     end
 
-    // delays the commit by one cycle past sk_done&&last_cycle: the SK-phase
-    // scatter (above) and the commit below are both NBA-driven off sk_done
-    // on the same edge, so committing on that same cycle would read
-    // next_state.vx/vy/vz at their pre-edge (one-cycle-stale) value, racing
-    // the scatter's own write -- delaying the commit by one cycle lets the
-    // scatter land first
-    logic commit_ready;
+    // delaying the commit by one cycle lets the scatter land first
     always_ff @(posedge clk) begin
         if (rst) commit_ready <= 0;
         else commit_ready <= (fsm == S_SECONDKICK) && sk_done && last_cycle;
@@ -212,7 +217,7 @@ module accelerator(
             case (fsm)
                 S_KICKDRIFT:  if (kd_done) cycle_ctr <= last_cycle ? 0 : cycle_ctr + 1;
                 S_FORCE:      if (fe_done) cycle_ctr <= last_cycle ? 0 : cycle_ctr + 1;
-                S_SECONDKICK: if (sk_done) cycle_ctr <= last_cycle ? 0 : cycle_ctr + 1;
+                S_SECONDKICK: if (sk_done && !commit_ready) cycle_ctr <= last_cycle ? 0 : cycle_ctr + 1;
                 default: ;
             endcase
         end

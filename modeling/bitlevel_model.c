@@ -53,6 +53,66 @@ static void inline calculate_new_velocity(int32_t vx_half, int32_t vy_half, int3
         *vz_new = vz_half + (int32_t)(((int64_t)az_new * dt) >> (FRAC_BITS + 1));
 }
 
+static void debug_pair_force(int i, int j, const State *s) {
+    int64_t dx = (int64_t)s->rx[j] - (int64_t)s->rx[i];
+    int64_t dy = (int64_t)s->ry[j] - (int64_t)s->ry[i];
+    int64_t dz = (int64_t)s->rz[j] - (int64_t)s->rz[i];
+    int64_t denom = dx*dx + dy*dy + dz*dz + EPS_SQUARED;
+    int64_t inv_sqrt = fixed_rsqrt(denom);
+    int64_t inv_sqrt_2 = (inv_sqrt * inv_sqrt) >> SEED_FRAC;
+    int64_t inv_sqrt_3 = (inv_sqrt_2 * inv_sqrt) >> SEED_FRAC;
+    int64_t mdx = ((int64_t)s->m[j] * dx) >> FRAC_BITS;
+    int64_t mdy = ((int64_t)s->m[j] * dy) >> FRAC_BITS;
+    int64_t mdz = ((int64_t)s->m[j] * dz) >> FRAC_BITS;
+    int32_t ax = (int32_t)((mdx * inv_sqrt_3) >> SEED_FRAC);
+    int32_t ay = (int32_t)((mdy * inv_sqrt_3) >> SEED_FRAC);
+    int32_t az = (int32_t)((mdz * inv_sqrt_3) >> SEED_FRAC);
+    int msb = -1;
+    for (int b = 63; b >= 0; b--) if (denom & (1LL << b)) { msb = b; break; }
+    int k = msb - REF;
+    int parity = k & 1;
+    int k_even = k - parity;
+    int shift = msb - NEWTON_LUT_BITS;
+    int64_t mantissa = (shift >= 0) ? (denom >> shift) & ((1LL << NEWTON_LUT_BITS) - 1)
+                                    : (denom << (-shift)) & ((1LL << NEWTON_LUT_BITS) - 1);
+    int norm_shift = (DENOM_FRAC - SEED_FRAC) + k_even;
+    int64_t a_norm = (norm_shift >= 0) ? (denom >> norm_shift) : (denom << (-norm_shift));
+    int half_val = k_even >> 1;
+    int lut_index = ((int)parity << NEWTON_LUT_BITS) | (int)mantissa;
+    printf("  pair(%d,%d): dx=%lld dy=%lld denom=%lld\n", i, j, dx, dy, denom);
+    printf("    msb=%d parity=%d k_even=%d half=%d mantissa=%lld lut_idx=%d lut_seed=%lld\n",
+           msb, parity, k_even, half_val, mantissa, lut_index, NEWTON_LUT[lut_index]);
+    printf("    a_norm=%lld inv_sqrt=%lld inv_sqrt_2=%lld inv_sqrt_3=%lld\n",
+           a_norm, inv_sqrt, inv_sqrt_2, inv_sqrt_3);
+    printf("    mdx=%lld mdy=%lld ax=%d ay=%d az=%d\n", mdx, mdy, ax, ay, az);
+}
+
+static double calculate_total_energy(const State *s) {
+    double ke = 0.0;
+    for (int i = 0; i < N; i++) {
+        double vx = s->vx[i] / (double)FRAC_SCALE;
+        double vy = s->vy[i] / (double)FRAC_SCALE;
+        double vz = s->vz[i] / (double)FRAC_SCALE;
+        double m  = s->m[i]  / (double)FRAC_SCALE;
+        ke += 0.5 * m * (vx*vx + vy*vy + vz*vz);
+    }
+
+    double eps2_real = (double)EPS_SQUARED / (double)(1LL << DENOM_FRAC);
+    double pe = 0.0;
+    for (int i = 0; i < N; i++) {
+        for (int j = i+1; j < N; j++) {
+            double dx = (s->rx[j] - s->rx[i]) / (double)FRAC_SCALE;
+            double dy = (s->ry[j] - s->ry[i]) / (double)FRAC_SCALE;
+            double dz = (s->rz[j] - s->rz[i]) / (double)FRAC_SCALE;
+            double mi = s->m[i] / (double)FRAC_SCALE;
+            double mj = s->m[j] / (double)FRAC_SCALE;
+            double r  = sqrt(dx*dx + dy*dy + dz*dz + eps2_real);
+            pe -= mi * mj / r;
+        }
+    }
+    return ke + pe;
+}
+
 static void write_states_csv(const State *states, int32_t count, int32_t dt, const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) {
@@ -94,7 +154,7 @@ int main(int argc, char *argv[]){
     const char *orbit_name = (argc > 1) ? argv[1] : "figure8";
 
     int32_t t = 0;
-    int32_t t_end = 10 << FRAC_BITS;
+    int32_t t_end = 40 << FRAC_BITS;
 
     State state;
     double dt_real = load_orbit_config(orbit_name, &state);
@@ -102,8 +162,11 @@ int main(int argc, char *argv[]){
 
     seed_accelerations(&state);
     static State states[10000];
+    static double energies[10000];
     int32_t size = 0;
-    states[size++] = state;
+    states[size] = state;
+    energies[size] = calculate_total_energy(&state);
+    size++;
 
     while (t < t_end) {
         State new_state = state;
@@ -122,6 +185,11 @@ int main(int argc, char *argv[]){
         for (int i = 0; i < N; ++i) {
             int32_t ax = 0, ay = 0, az = 0;
             calculate_particle_acceleration(i, &new_state, &ax, &ay, &az);
+            // if (t == 0 && i == 0) {
+            //     printf("=== BLM step-1 body-0 per-pair forces ===\n");
+            //     for (int j = 0; j < N; j++) debug_pair_force(0, j, &new_state);
+            //     printf("  total: ax=%d\n", ax);
+            // }
             new_state.ax[i] = ax;
             new_state.ay[i] = ay;
             new_state.az[i] = az;
@@ -135,7 +203,25 @@ int main(int argc, char *argv[]){
 
         t += dt;
         state = new_state;
-        states[size++] = state;
+        states[size] = state;
+        energies[size] = calculate_total_energy(&state);
+        size++;
+    }
+
+    double e0 = energies[0];
+    double ef = energies[size-1];
+    printf("Initial energy: %.6f\n", e0);
+    printf("Final energy:   %.6f\n", ef);
+    printf("Relative drift: %.3f%%\n", 100.0 * (ef - e0) / fabs(e0));
+    // find the first step where energy drift exceeds 1%
+    for (int s = 1; s < size; s++) {
+        double drift = fabs((energies[s] - e0) / e0);
+        if (drift > 0.01) {
+            double t_real = s * ((double)dt / (double)FRAC_SCALE);
+            printf("First >1%% drift at step %d (t=%.3f): E=%.6f (drift=%.3f%%)\n",
+                   s, t_real, energies[s], 100.0*drift);
+            break;
+        }
     }
 
     write_states_csv(states, size, dt, "output/states.csv");

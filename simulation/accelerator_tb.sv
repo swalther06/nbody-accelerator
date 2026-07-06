@@ -85,10 +85,10 @@ module accelerator_tb;
         rst = 0;
         // dt=0.01 matches every config's suggested dt in modeling/orbits.py
         // (re-check this if a future config uses a different one).
-        // tend=10.0 (~1000 steps) matches fm/blm's default t_end, so
+        // tend=40.0 (~4000 steps) matches fm/blm's default t_end, so
         // make fm / make blm / make simulate are directly comparable
         dt = 32'h000028f6;
-        tend = 32'h0c000000;
+        tend = 32'h02800000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");
@@ -117,5 +117,78 @@ module accelerator_tb;
         $display("Simulation finished at time %0t", $time);
         $finish;
     end
+
+    // // Print raw Q20 integer forces from accel_modules on first force-done pulse
+    // // Compare these directly with BLM to isolate rounding source
+    // int force_debug_done;
+    // initial force_debug_done = 0;
+    // always @(posedge clk) begin
+    //     if (!force_debug_done && dut.fe_done && dut.fsm == 3'd2) begin
+    //         force_debug_done = 1;
+    //         $display("=== RTL step-1 forces (raw Q20 integers) ===");
+    //         for (int p = 0; p < `N; p++) begin
+    //             $display("  p=%0d  ax=%0d  ay=%0d  az=%0d",
+    //                 p,
+    //                 $signed(dut.ax_out_lane[p]),
+    //                 $signed(dut.ay_out_lane[p]),
+    //                 $signed(dut.az_out_lane[p]));
+    //         end
+    //         // Also print post-KD positions used in force computation
+    //         $display("  --- post-KD positions (Q20) ---");
+    //         for (int p = 0; p < `N; p++) begin
+    //             $display("  p=%0d  rx=%0d  ry=%0d", p,
+    //                 $signed(dut.next_state.rx[p]),
+    //                 $signed(dut.next_state.ry[p]));
+    //         end
+    //     end
+    // end
+
+    // // Print per-lane forces for FE[0] (body 0) at each batch accumulation, step 1 only
+    // // Path: dut.FE[i].acc_i is the accel_module instance inside the generate block
+    // int fe0_lane_debug_done;
+    // initial fe0_lane_debug_done = 0;
+    // always @(posedge clk) begin
+    //     if (!fe0_lane_debug_done && dut.FE[0].acc_i.au_valid[0]) begin
+    //         if (dut.FE[0].acc_i.cycle_ctr == dut.FE[0].acc_i.num_cycles - 1)
+    //             fe0_lane_debug_done = 1;
+    //         $display("=== FE[0] batch=%0d per-lane ax (Q20) ===", dut.FE[0].acc_i.cycle_ctr);
+    //         $display("  lane0=%0d  lane1=%0d  lane2=%0d  lane3=%0d  sum=%0d",
+    //             $signed(dut.FE[0].acc_i.ax_wire[0]),
+    //             $signed(dut.FE[0].acc_i.ax_wire[1]),
+    //             $signed(dut.FE[0].acc_i.ax_wire[2]),
+    //             $signed(dut.FE[0].acc_i.ax_wire[3]),
+    //             $signed(dut.FE[0].acc_i.ax_wire[0] + dut.FE[0].acc_i.ax_wire[1] +
+    //                     dut.FE[0].acc_i.ax_wire[2] + dut.FE[0].acc_i.ax_wire[3]));
+    //         $display("  ax_reg_before=%0d", $signed(dut.FE[0].acc_i.ax_reg));
+    //     end
+    // end
+
+    // // Print lane2 pipeline inputs exactly when ax_i_reg is computed:
+    // // valid_reg=1 but valid_reg2=0 means "one cycle after valid fires, before accumulation".
+    // // At this posedge, $display reads PRE-posedge (pre-NBA) values = the inputs to ax_i_reg.
+    // int fe0_ax_compute_done;
+    // initial fe0_ax_compute_done = 0;
+    // always @(posedge clk) begin
+    //     if (!fe0_ax_compute_done
+    //         && dut.FE[0].acc_i.genblk1[2].au.valid_reg
+    //         && !dut.FE[0].acc_i.genblk1[2].au.valid_reg2) begin
+    //         fe0_ax_compute_done = 1;
+    //         $display("=== Lane2 ax_i_reg compute cycle (valid_reg=1, valid_reg2=0) ===");
+    //         $display("  inv_res=%0d  mdx_reg[4]=%0d",
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.inv_res),
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.mdx_reg[4]));
+    //         $display("  => expected ax = (%0d * %0d) >>> 28 = %0d",
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.mdx_reg[4]),
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.inv_res),
+    //             $signed((dut.FE[0].acc_i.genblk1[2].au.mdx_reg[4]
+    //                      * dut.FE[0].acc_i.genblk1[2].au.inv_res) >>> 28));
+    //         // Drill into inv_pwr_3d2_unit to see rsqrt and cube intermediates
+    //         $display("  ip.rsqrt_out=%0d  ip.inv_pwr=%0d  ip.inv_pwr2=%0d  ip.inv_pwr3=%0d",
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.ip.rsqrt_out),
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.ip.inv_pwr),
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.ip.inv_pwr2),
+    //             $signed(dut.FE[0].acc_i.genblk1[2].au.ip.inv_pwr3));
+    //     end
+    // end
 
 endmodule

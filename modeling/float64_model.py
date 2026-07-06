@@ -5,7 +5,7 @@ import numpy as np
 from export import write_states_csv
 from orbits import CONFIGS
 
-EPS_SQUARED = 1e-5 ** 2
+EPS_SQUARED = 1e-6  # matches RTL/BLM (definitions.h: 1e-6 * 2^40 / 2^40)
 G = 6.67430e-11
 WIDTH = 10
 
@@ -139,7 +139,7 @@ def main(orbit_type="figure8"):
     N = 10
 
     t = 0
-    t_end = 10
+    t_end = 40
 
     state = State(N)
     dt = load_config(orbit_type, state, N)

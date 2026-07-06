@@ -16,9 +16,7 @@ module accel_module(
 
     output logic acc_valid
 );
-    // tiles the j-loop over the padded array (N_PAD), not the real body count,
-    // since rx_new/ry_new/rz_new/m are sized N_PAD; relies on NUMPIPES being a
-    // multiple of NUMLANES so N_PAD (a multiple of NUMPIPES) divides evenly here
+
     localparam num_cycles = (`N_PAD + `NUMLANES - 1)/`NUMLANES;
     localparam ITERS = 2;
 
@@ -41,6 +39,16 @@ module accel_module(
 
     logic [`NUMLANES-1:0] au_valid;
     logic done_accumulating;
+
+    word_t ax_sum, ay_sum, az_sum;
+    always_comb begin
+        ax_sum = 0; ay_sum = 0; az_sum = 0;
+        for (int k = 0; k < `NUMLANES; k++) begin
+            ax_sum += ax_wire[k];
+            ay_sum += ay_wire[k];
+            az_sum += az_wire[k];
+        end
+    end
 
     // tracks in_ctr combinationally (a module-scope declaration assignment
     // would only initialize once at time 0, not follow in_ctr)
@@ -76,7 +84,7 @@ module accel_module(
     endgenerate
 
     always_ff @(posedge clk) begin
-        if (rst | done_accumulating) begin
+        if (rst | restart) begin
             ax_reg <= 0;
             ay_reg <= 0;
             az_reg <= 0;
@@ -84,9 +92,9 @@ module accel_module(
             cycle_ctr <= 0;
         end else begin
             if (au_valid[0] && cycle_ctr < num_cycles) begin
-                ax_reg <= ax_reg + ax_wire.sum();
-                ay_reg <= ay_reg + ay_wire.sum();
-                az_reg <= az_reg + az_wire.sum();
+                ax_reg <= ax_reg + ax_sum;
+                ay_reg <= ay_reg + ay_sum;
+                az_reg <= az_reg + az_sum;
 
                 cycle_ctr <= cycle_ctr + 1;
 

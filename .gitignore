@@ -29,4 +29,6 @@ simulation/*.vpd
 simulation/*.fsdb
 simulation/*.mem
 
+synthesis/build
+
 

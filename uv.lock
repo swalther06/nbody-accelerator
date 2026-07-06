@@ -207,6 +207,11 @@ dependencies = [
     { name = "numpy" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "verilator" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "imageio", specifier = ">=2.37.3" },
@@ -214,6 +219,9 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.11.0" },
     { name = "numpy", specifier = ">=2.4.6" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "verilator", specifier = ">=5.48.0" }]
 
 [[package]]
 name = "packaging"
@@ -285,4 +293,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "systemc"
+version = "3.0.2.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/05/31e2ac6da1c0035844173d72fc539c9b084d70b7337ad50723edb2d56c0f/systemc-3.0.2.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:61bfa44c8794eaa4bf38c393e9b234542235edd8df6c684d0dad79e248c547ba", size = 3822146, upload-time = "2026-05-15T20:48:48.251Z" },
+    { url = "https://files.pythonhosted.org/packages/56/2f/0f9aae96cf1a6d306984bb79a00327e0f0a0f3668915111b70583df29d2a/systemc-3.0.2.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9e78999f6760dc3a7d1939a227e8a835b400b05e3be9b3e6003d29dddc01440f", size = 1227919, upload-time = "2026-05-15T20:48:50.123Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/4a/597f597ad66acd32721fea2f38db9bd19d544750613acc8d7296ec5de619/systemc-3.0.2.1-py3-none-win_amd64.whl", hash = "sha256:2368b3f196188e043503b50c66d80066b52b84de1dee78ee90745681678ca7c0", size = 8605449, upload-time = "2026-05-15T20:48:52.004Z" },
+]
+
+[[package]]
+name = "verilator"
+version = "5.48.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "systemc" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/4e/b919f10189b24901967302be6f678fa9bd153648fbd919c2880c02406a15/verilator-5.48.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:dbd581599b5b3c7b93910cca98b42d127480fcc63d62ba1f7d1dbf73ad0786fc", size = 5316894, upload-time = "2026-05-16T06:27:38.181Z" },
+    { url = "https://files.pythonhosted.org/packages/39/50/32165e006e35b647c8ea105e8ba1ef76c362ea35f645e2a55357a13ec236/verilator-5.48.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:37c4baba6a268f6e0a15b4917dbbc45dcf23ddea1498d059f8259a34072ac427", size = 6494358, upload-time = "2026-05-16T06:27:46.742Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/83/af403e28686d4bdaffe517809fdd77b5c746f3b7953a5880acb60f12e716/verilator-5.48.0-py3-none-win_amd64.whl", hash = "sha256:e03aad7e023bbe585f909276f3c03af66f7ede72155f8f75fdaf4f1ec8250e09", size = 5217421, upload-time = "2026-05-16T06:27:54.456Z" },
 ]

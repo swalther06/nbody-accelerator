@@ -3,7 +3,7 @@
 
 // WORD SIZE
 `define WORDBITS 32
-`define DWORDBITS 2*`WORDBITS
+`define DWORDBITS (2*`WORDBITS)
 
 // WORD TYPE DEFINITIONS
 typedef logic signed [`WORDBITS-1:0] word_t;
@@ -13,22 +13,24 @@ typedef logic signed [`DWORDBITS-1:0] dword_t;
 `define N 10
 `define NBITS $clog2(`N)
 
-`define EPS_SQUARED dword_t'((1e-6 * (`DWORDBITS'd1 << `DENOMFRAC)))
+// ACCELERATION SOFTENING - prevents massive accelerations from occuring due to close proximity
+`define EPS_SQUARED dword_t'((1e-6 * (dword_t'(1) << `DENOMFRAC)))
 
 // PIPE PARALLELIZATION - number of bodies processed at once
-`define NUMPIPES 20
-
-// N rounded up to a multiple of NUMPIPES, so per-batch tiling never indexes out of range
-`define N_PAD (((`N + `NUMPIPES - 1) / `NUMPIPES) * `NUMPIPES)
+`define NUMPIPES 1
 
 // LANE PARALLELIZATION - number of accelerations calculated at once
 `define NUMLANES 4
+
+// PADDING FOR N
+`define N_PAD1 (((`N + `NUMPIPES - 1) / `NUMPIPES) * `NUMPIPES)
+`define N_PAD (((`N_PAD1 + `NUMLANES - 1) / `NUMLANES) * `NUMLANES)
 
 // FIXED-POINT ARITHMETIC
 `define FRACBITS 20
 `define FRACSCALE (1 << `FRACBITS)
 `define SEEDFRAC 28
-`define DENOMFRAC 2 * `FRACBITS
+`define DENOMFRAC (2 * `FRACBITS)
 
 `define NEWTONITERS 2
 
