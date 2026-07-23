@@ -1,6 +1,6 @@
 `include "defs.svh"
 
-module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
+module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) (
     input clk,
     input rst,
     input dword_t x,
@@ -9,21 +9,18 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
     output logic valid,
     output dword_t result
 );
+    localparam ITERSCYCLES = 3*ITERS;
 
-    // REGISTERS
-    dword_t guesses_regs [ITERS-1:0];
-    dword_t a_regs [ITERS-1:0];
-    word_t half_regs [ITERS-1:0];
+    dword_t a_delay [ITERSCYCLES-1:0];
+    word_t  half_delay [ITERSCYCLES-1:0];
 
+    dword_t stage_out [ITERS-1:0];
 
-    // WIRES TO REGS AND MODULES
-    dword_t a_in [ITERS-1:0];
-    dword_t guesses_in [ITERS-1:0];
-    dword_t guesses_out [ITERS-1:0];
-    dword_t a;      
-    word_t half;              
+    dword_t a;
+    word_t half;
     dword_t guess;          // from LUT
     dword_t rsqrt_out;
+    dword_t guess_final;    // fully-refined guess, tail of the chain
     logic parity;
     logic [`LUTBITS-1:0] mantissa;
     dword_t inv_pwr3_reg;
@@ -60,38 +57,28 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
         a = (norm_shift >= 0) ? (x_reg >> norm_shift) : (x_reg << (-norm_shift));
 
         half = k_even >>> 1;
-        rsqrt_out = (half_regs[ITERS-1] >= 0) 
-            ? (guesses_regs[ITERS-1] >> half_regs[ITERS-1]) 
-            : (guesses_regs[ITERS-1] << (-half_regs[ITERS-1]));
+
+        guess_final = stage_out[ITERS-1];
+        rsqrt_out = (half_delay[ITERSCYCLES-1] >= 0)
+            ? (guess_final >> half_delay[ITERSCYCLES-1])
+            : (guess_final << (-half_delay[ITERSCYCLES-1]));
     end
 
 
-    // CUBE RSQRT CALCULATION
-    dword_t inv_pwr;
-    dword_t inv_pwr2;
-    dword_t inv_pwr3;
-    logic signed [2*`DWORDBITS-1:0] p;
+    // CUBE RSQRT CALCULATION -> 3 cycles latency
+    dword_t inv_pwr, inv_pwr2, inv_pwr3;
+    dword_t inv_pwr_reg, inv_pwr2_reg;
+    dword_t rsqrt_out_reg;
+    logic signed [2*`DWORDBITS-1:0] p1, p2;
     always_comb begin
-        inv_pwr = rsqrt_out;
+        inv_pwr = rsqrt_out_reg;
 
-        p = inv_pwr  * inv_pwr;   
-        inv_pwr2 = dword_t'(p >> `SEEDFRAC);
+        p1 = inv_pwr  * inv_pwr;   
+        inv_pwr2 = dword_t'(p1 >> `SEEDFRAC);
 
-        p = inv_pwr2 * inv_pwr;   
-        inv_pwr3 = dword_t'(p >> `SEEDFRAC);
+        p2 = inv_pwr2_reg * inv_pwr_reg;   
+        inv_pwr3 = dword_t'(p2 >> `SEEDFRAC);
     end
-
-
-    // LOOKUP TABLE INPUT WIRING
-    always_comb begin
-        guesses_in[0] = guess;
-        a_in[0] = a;
-        for (int i = 1; i < ITERS; i++) begin
-            a_in[i] = a_regs[i-1];
-            guesses_in[i] = guesses_regs[i-1];
-        end
-    end
-
 
     // REGISTER UPDATE
     logic [$clog2(LATENCY+1)-1:0] fill_ctr;
@@ -102,28 +89,53 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            guesses_regs <= '{default: '0};
-            a_regs <= '{default: '0};
-            half_regs <= '{default: '0};
+            a_delay <= '{default: '0};
+            half_delay <= '{default: '0};
             msb_reg <= 0;
             x_reg <= 0;
+            inv_pwr_reg <= 0;
+            inv_pwr2_reg <= 0;
             inv_pwr3_reg <= 0;
+            rsqrt_out_reg <= 0;
 
         end else begin
-            guesses_regs <= guesses_out;
             msb_reg <= msb;
             x_reg <= x;
+            inv_pwr_reg <= inv_pwr;
+            inv_pwr2_reg <= inv_pwr2;
             inv_pwr3_reg <= inv_pwr3;
+            rsqrt_out_reg <= rsqrt_out;
 
-            a_regs[0] <= a;
-            half_regs[0] <= half;
-            for (int i = 1; i < ITERS; i++) begin
-                a_regs[i]    <= a_regs[i-1];
-                half_regs[i] <= half_regs[i-1];
+            a_delay[0]    <= a;
+            half_delay[0] <= half;
+            for (int i = 1; i < ITERSCYCLES; i++) begin
+                a_delay[i]    <= a_delay[i-1];
+                half_delay[i] <= half_delay[i-1];
             end
         end
     end
 
+    genvar k;
+    generate
+        for (k = 0; k < ITERS; k++) begin : newton_stage
+            dword_t y_in, a_in;
+            if (k == 0) begin : head
+                assign y_in = guess;   // LUT seed
+                assign a_in = a;       // aligned in-cycle with guess
+            end else begin : tail
+                assign y_in = stage_out[k-1];  // previous refined guess
+                assign a_in = a_delay[3*k-1];  // a delayed to match (3 cyc/stage)
+            end
+
+            rsqrt_newton_step rns (
+                .clk,
+                .rst,
+                .a(a_in),
+                .y(y_in),
+                .step_out(stage_out[k])
+            );
+        end
+    endgenerate
 
     // MODULE DECLARATIONS
     newton_lut lookup(
@@ -132,14 +144,6 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = ITERS + 3) (
 
         .val(guess)
     );
-
-    rsqrt_newton_step rns [ITERS-1:0](
-        .a(a_in),
-        .y(guesses_in),
-
-        .step(guesses_out)
-    );
-    
 
     // OUTPUT ASSIGNMENTS
     assign valid = (fill_ctr == LATENCY[$clog2(LATENCY+1)-1:0]);

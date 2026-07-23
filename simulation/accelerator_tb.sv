@@ -12,6 +12,7 @@ module accelerator_tb;
     State st_out;
     logic done;
     word_t state_counter;
+    int cycle_counter;
 
     accelerator dut (
         .clk(clk),
@@ -93,8 +94,8 @@ module accelerator_tb;
         // tend=5.0 (~10000 steps) matches float64_model.py's hardcoded
         // t_end, so make fm / make blm / make simulate are directly
         // comparable
-        dt = 32'h0000020c;
-        tend = 32'h00500000;
+        dt = 32'h000028A8;
+        tend = 32'h02000000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");
@@ -114,13 +115,17 @@ module accelerator_tb;
                 @(posedge clk);
                 if (state_counter != last_counter) begin
                     last_counter = state_counter;
+                    if (state_counter % 500 == 0) begin
+                        $display("State %0d complete on cycle %0d", state_counter, cycle_counter);
+                    end
                     write_state_csv(last_counter, st_out);
                 end
+                cycle_counter++;
             end
         end
 
         $fclose(csv_file);
-        $display("Simulation finished at time %0t", $time);
+        $display("Simulation finished on state %0d and at cycle %0d", state_counter, cycle_counter);
         $finish;
     end
 

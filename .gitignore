@@ -28,7 +28,11 @@ simulation/DVEfiles/
 simulation/*.vpd
 simulation/*.fsdb
 simulation/*.mem
+simulation/work/
 
 synthesis/build
+synthesis/*.log
+synthesis/logs/
+synthesis/report/
 
 

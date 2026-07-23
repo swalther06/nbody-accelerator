@@ -1,4 +1,4 @@
-.PHONY: help sync fm blm render lut st_init sim synth clean
+.PHONY: help sync fm blm render lut st_init sim synth clean syn_search nuke
 
 help:
 	@echo "Available targets:"
@@ -53,13 +53,27 @@ synth:
 	mkdir -p synthesis/build
 	cd synthesis/build && dc_shell -x "set script_dir .." -f ../synth.tcl | tee ../synth.log
 
+syn_search:
+	tmux new-session -d -s syn_search 'bash synthesis/find_min_period.sh; echo "--- done, press enter to close ---"; read'
+	@echo "started in tmux session 'syn_search' -- attach with: tmux attach -t syn_search"
+
 clean:
 	rm -f *.exe
 	rm -f modeling/*.exe
 	rm -f output/*
 	rm -rf simulation/csrc simulation/simv simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/*.vpd simulation/*.fsdb
-	rm -rf synthesis/build synthesis/report synthesis/synth.log synthesis/command.log synthesis/filenames.log synthesis/cksum_dir
+	rm -rf synthesis/build synthesis/cksum_dir
 	rm -rf synthesis/*.pvl
 	rm -rf synthesis/*.syn
 	rm -rf synthesis/*.mr
 
+nuke:
+	rm -f *.exe
+	rm -f modeling/*.exe
+	rm -f output/*
+	rm -rf simulation/csrc simulation/simv simulation/work simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/*.mem simulation/DVEfiles simulation/*.vpd simulation/*.fsdb 
+	rm -rf synthesis/build synthesis/report synthesis/cksum_dir synthesis/logs
+	rm -rf synthesis/*.pvl
+	rm -rf synthesis/*.syn
+	rm -rf synthesis/*.mr
+	rm -rf synthesis/*.log 

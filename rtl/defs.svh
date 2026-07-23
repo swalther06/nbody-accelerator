@@ -4,17 +4,20 @@
 // WORD SIZE
 `define WORDBITS 32
 `define DWORDBITS (2*`WORDBITS)
+`define QWORDBITS (2*`DWORDBITS)
 
 // WORD TYPE DEFINITIONS
 typedef logic signed [`WORDBITS-1:0] word_t;
 typedef logic signed [`DWORDBITS-1:0] dword_t;
+typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 // NUMBER OF BODIES 
 `define N 10
 `define NBITS $clog2(`N)
 
 // ACCELERATION SOFTENING - prevents massive accelerations from occuring due to close proximity
-`define EPS_SQUARED dword_t'((1e-6 * (dword_t'(1) << `DENOMFRAC)))
+`define EPS_SQUARED ((dword_t'(1) << `DENOMFRAC) / 1000000)
+
 
 // PIPE PARALLELIZATION - number of bodies processed at once
 `define NUMPIPES 1

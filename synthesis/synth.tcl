@@ -118,8 +118,7 @@ set_fix_hold $clock_name
 # -area_effort none: skip the post-compile area-reduction pass; change to
 #                    "high" if area matters once timing has closed.
 # =============================================================================
-compile -map_effort medium -area_effort none
-
+compile -map_effort high -area_effort none
 
 # =============================================================================
 # OUTPUTS
@@ -131,10 +130,20 @@ write -format verilog -hierarchy -output "${design_name}.synth.v"
 write_sdc "${design_name}.sdc"
 
 file mkdir ../report
-set rep_file "../report/${design_name}.rpt"
-redirect $rep_file          { report_design    -nosplit }
-redirect -append $rep_file  { report_timing    -max_paths 2 -input_pins -nets -transition_time -nosplit }
-redirect -append $rep_file  { report_constraints -all_violators -verbose -nosplit -significant_digits 4 }
-redirect -append $rep_file  { report_power }
-redirect -append $rep_file  { report_resources  -hier }
-redirect -append $rep_file  { report_area       -hierarchy }
+
+# timing: design summary + critical paths + constraint violations
+set timing_rpt "../report/${design_name}_timing.rpt"
+redirect $timing_rpt         { report_design      -nosplit }
+redirect -append $timing_rpt { report_timing      -max_paths 2 -input_pins -nets -transition_time -nosplit }
+redirect -append $timing_rpt { report_constraints -all_violators -verbose -nosplit -significant_digits 4 }
+
+# area: cell/resource utilization
+set area_rpt "../report/${design_name}_area.rpt"
+redirect $area_rpt           { report_resources -hier }
+redirect -append $area_rpt   { report_area      -hierarchy }
+
+# power
+set power_rpt "../report/${design_name}_power.rpt"
+redirect $power_rpt          { report_power }
+
+exit
