@@ -23,6 +23,7 @@ CLOCK_FILE=synthesis/clock
 TIMING_RPT=synthesis/report/accelerator_timing.rpt
 LOG=synthesis/logs/find_min_period.log
 
+mkdir -p "$(dirname "$LOG")"
 : > "$LOG"
 
 SLACK=""   # set by measure_slack -- bash functions can't return floats

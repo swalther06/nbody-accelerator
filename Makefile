@@ -1,4 +1,4 @@
-.PHONY: help sync fm blm render lut st_init sim synth clean syn_search nuke
+.PHONY: help sync fm blm render lut st_init sim mult_tb synth clean syn_search nuke
 
 help:
 	@echo "Available targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  lut     - generate the Newton LUT header"
 	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
 	@echo "  sim 	 - run accelerator_tb.sv in VCS (ORBIT=<config>, VCD=1 to dump waveform)"
+	@echo "  mult_tb - run multiplier_tb.sv in VCS (standalone rad4_booth_reduction_multiplier check)"
 	@echo "  synth   - run Design Compiler synthesis (outputs to synthesis/)"
 	@echo "  clean   - remove build artifacts and output"
 	@echo ""
@@ -44,10 +45,15 @@ st_init:
 # reach tens of GB and blow through a disk quota
 VCD ?= 0
 VCD_ARG := $(if $(filter 0,$(VCD)),,+VCD)
+DEBUG_ARG := $(if $(filter 0,$(VCD)),,-debug_access+all)
 
 sim: st_init
 	mkdir -p output
-	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps -debug_access+all ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv $(VCD_ARG)
+	tmux new-session -d -s sim_run 'cd simulation  && vcs -sverilog -full64 -timescale=1ns/1ps $(DEBUG_ARG) ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv $(VCD_ARG); echo "--- done, press enter to close ---"; read'
+	@echo 'started in tmux session 'sim_run''
+
+mult_tb:
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv multiplier_tb.sv +incdir+../rtl -top multiplier_tb -o simv_mult && ./simv_mult
 
 synth:
 	mkdir -p synthesis/build
@@ -61,7 +67,7 @@ clean:
 	rm -f *.exe
 	rm -f modeling/*.exe
 	rm -f output/*
-	rm -rf simulation/csrc simulation/simv simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/*.vpd simulation/*.fsdb
+	rm -rf simulation/csrc simulation/simv simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/simv_mult.daidir simulation/*.vpd simulation/*.fsdb 
 	rm -rf synthesis/build synthesis/cksum_dir
 	rm -rf synthesis/*.pvl
 	rm -rf synthesis/*.syn
@@ -71,7 +77,7 @@ nuke:
 	rm -f *.exe
 	rm -f modeling/*.exe
 	rm -f output/*
-	rm -rf simulation/csrc simulation/simv simulation/work simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/*.mem simulation/DVEfiles simulation/*.vpd simulation/*.fsdb 
+	rm -rf simulation/csrc simulation/simv simulation/work simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/simv_mult.daidir simulation/*.mem simulation/DVEfiles simulation/*.vpd simulation/*.fsdb 
 	rm -rf synthesis/build synthesis/report synthesis/cksum_dir synthesis/logs
 	rm -rf synthesis/*.pvl
 	rm -rf synthesis/*.syn

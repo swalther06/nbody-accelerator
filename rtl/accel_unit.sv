@@ -18,9 +18,10 @@ module accel_unit #(parameter ITERS = 2) (
 
     output logic accel_valid
 );
-    // inv_pwr_3d2_unit: 1 cycle (x_reg) + 3*ITERS (pipelined newton chain,
-    // 3 cyc/step) + 2 cycles (inv_pwr3_reg) from x applied to result valid
-    localparam LATENCY = 3*ITERS + 5;
+    // inv_pwr_3d2_unit: 1 cycle (x_reg) + ITERS*RSQRTMULTLATENCY (pipelined newton
+    // chain, 18 cyc/step) + 1 cycle (rsqrt_out_reg) + 2*DWORDMULTLATENCY
+    // (real inv_pwr^2, inv_pwr^3 multiplies) + 1 cycle (inv_pwr3_reg)
+    localparam LATENCY = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 3;
     // mdx/mdy/mdz must stay aligned with inv_res, which trails denom by LATENCY
     // cycles through inv_pwr_3d2_unit *plus* the extra denom_reg stage below
     localparam MD_DELAY = LATENCY + 1;
@@ -30,34 +31,34 @@ module accel_unit #(parameter ITERS = 2) (
 
     logic valid;
     logic valid_reg;
-    // ax_i_reg/ay_i_reg/az_i_reg register the product of mdx_reg[MD_DELAY-1]
-    // and inv_res, both of which only become valid the SAME cycle valid_reg
-    // itself does -- so accel_valid needs a second stage to match the extra
-    // register hop ax_i_reg takes beyond its own inputs settling
     logic valid_reg2;
 
     word_t ax_i_reg;
     word_t ay_i_reg;
     word_t az_i_reg;
 
-    // 1 cycle latency from registering d*
-    dword_t dx, dy, dz, denom, inv_res;
-    dword_t dx2, dy2, dz2;
-    dword_t dx2_reg, dy2_reg, dz2_reg;
+    // WORDMULTLATENCY cycle latency from registering d*
+    word_t dx, dy, dz;
+    dword_t dx2, dy2, dz2, denom, inv_res;
+
+    rad4_booth_reduction_multiplier #(.WIDTH(`WORDBITS)) dr2_calc [2:0] (
+        .clk,
+        .rst,
+        .m({dx, dy, dz}),
+        .q({dx, dy, dz}),
+        .p({dx2, dy2, dz2})
+    );
+
     always_comb begin
-        dx = dword_t'(rx_j) - dword_t'(rx_i);
-        dy = dword_t'(ry_j) - dword_t'(ry_i);
-        dz = dword_t'(rz_j) - dword_t'(rz_i);
+        dx = (rx_j) - (rx_i);
+        dy = (ry_j) - (ry_i);
+        dz = (rz_j) - (rz_i);
 
-        dx2 = dx*dx;
-        dy2 = dy*dy;
-        dz2 = dz*dz;
-
-        denom = dx2_reg + dy2_reg + dz2_reg + `EPS_SQUARED;
+        denom = dx2 + dy2 + dz2 + `EPS_SQUARED;
     end
 
-    
-    inv_pwr_3d2_unit #(.ITERS(ITERS), .LATENCY(LATENCY)) ip(
+
+    inv_pwr_3d2_unit #(.ITERS(ITERS), .LATENCY(LATENCY + `WORDMULTLATENCY + `DWORDMULTLATENCY)) ip(
         .clk,
         .rst,
         .x(denom_reg),
@@ -67,14 +68,31 @@ module accel_unit #(parameter ITERS = 2) (
         .result(inv_res)
     );
 
+    dword_t mdx_unshifted, mdy_unshifted, mdz_unshifted;
+    rad4_booth_reduction_multiplier #(.WIDTH(`WORDBITS)) mdr_calc [2:0] (
+        .clk,
+        .rst,
+        .m({dx, dy, dz}),
+        .q({m_j, m_j, m_j}),
+        .p({mdx_unshifted, mdy_unshifted, mdz_unshifted})
+    );
 
     dword_t mdx, mdy, mdz;
     always_comb begin
         // >>> (not >>): dx/dy/dz are frequently negative; >> never sign-extends
-        mdx = (dword_t'(m_j) * dx) >>> `FRACBITS;
-        mdy = (dword_t'(m_j) * dy) >>> `FRACBITS;
-        mdz = (dword_t'(m_j) * dz) >>> `FRACBITS;
+        mdx = mdx_unshifted >>> `FRACBITS;
+        mdy = mdy_unshifted >>> `FRACBITS;
+        mdz = mdz_unshifted >>> `FRACBITS;
     end
+
+    qword_t ax_i_unshifted, ay_i_unshifted, az_i_unshifted;
+    rad4_booth_reduction_multiplier #(.WIDTH(`DWORDBITS)) ar_calc [2:0] (
+        .clk,
+        .rst,
+        .q({inv_res, inv_res, inv_res}),
+        .m({dword_t'(mdx_reg[MD_DELAY-1]), dword_t'(mdy_reg[MD_DELAY-1]), dword_t'(mdz_reg[MD_DELAY-1])}),
+        .p({ax_i_unshifted, ay_i_unshifted, az_i_unshifted})
+    );
 
 
     always_ff @(posedge clk) begin
@@ -88,9 +106,9 @@ module accel_unit #(parameter ITERS = 2) (
             ax_i_reg <= 0;
             ay_i_reg <= 0;
             az_i_reg <= 0;
-            dx2_reg <= 0;
-            dy2_reg <= 0;
-            dz2_reg <= 0;
+            // dx2_reg <= 0;
+            // dy2_reg <= 0;
+            // dz2_reg <= 0;
         end else begin
             denom_reg <= denom;
             // inv_pwr_3d2_unit's fill_ctr free-runs (and saturates) while
@@ -100,12 +118,12 @@ module accel_unit #(parameter ITERS = 2) (
             // cycle so a restart never latches a glitchy "already done" pulse
             valid_reg <= restart ? 1'b0 : valid;
             valid_reg2 <= restart ? 1'b0 : valid_reg;
-            ax_i_reg <= word_t'((mdx_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
-            ay_i_reg <= word_t'((mdy_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
-            az_i_reg <= word_t'((mdz_reg[MD_DELAY-1] * inv_res) >>> `SEEDFRAC);
-            dx2_reg <= dx2;
-            dy2_reg <= dy2;
-            dz2_reg <= dz2;
+            ax_i_reg <= word_t'(ax_i_unshifted >>> `SEEDFRAC);
+            ay_i_reg <= word_t'(ay_i_unshifted >>> `SEEDFRAC);
+            az_i_reg <= word_t'(az_i_unshifted >>> `SEEDFRAC);
+            // dx2_reg <= {dx2_reg[`DWORDMULTLATENCY-2:0], dx2};
+            // dy2_reg <= {dy2_reg[`DWORDMULTLATENCY-2:0], dy2};
+            // dz2_reg <= {dz2_reg[`DWORDMULTLATENCY-2:0], dz2};
 
             mdx_reg[0] <= mdx;
             mdy_reg[0] <= mdy;

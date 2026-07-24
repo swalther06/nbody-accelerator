@@ -1,6 +1,6 @@
 `include "defs.svh"
 
-module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) (
+module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = `RSQRTMULTLATENCY*ITERS + 2*`DWORDMULTLATENCY + 3) (
     input clk,
     input rst,
     input dword_t x,
@@ -8,8 +8,8 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) 
 
     output logic valid,
     output dword_t result
-);
-    localparam ITERSCYCLES = 3*ITERS;
+);  
+    localparam ITERSCYCLES = ITERS*`RSQRTMULTLATENCY;
 
     dword_t a_delay [ITERSCYCLES-1:0];
     word_t  half_delay [ITERSCYCLES-1:0];
@@ -65,19 +65,37 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) 
     end
 
 
-    // CUBE RSQRT CALCULATION -> 3 cycles latency
+    // CUBE RSQRT CALCULATION 
     dword_t inv_pwr, inv_pwr2, inv_pwr3;
-    dword_t inv_pwr_reg, inv_pwr2_reg;
     dword_t rsqrt_out_reg;
-    logic signed [2*`DWORDBITS-1:0] p1, p2;
+    dword_t [`DWORDMULTLATENCY-1:0] inv_pwr_delay;
+    qword_t p1, p2;
+
     always_comb begin
         inv_pwr = rsqrt_out_reg;
-
-        p1 = inv_pwr  * inv_pwr;   
         inv_pwr2 = dword_t'(p1 >> `SEEDFRAC);
-
-        p2 = inv_pwr2_reg * inv_pwr_reg;   
         inv_pwr3 = dword_t'(p2 >> `SEEDFRAC);
+    end
+
+    rad4_booth_reduction_multiplier #(.WIDTH(`DWORDBITS)) inv_pwr2_mult (
+        .clk,
+        .rst,
+        .m(inv_pwr),
+        .q(inv_pwr),
+        .p(p1)
+    );
+
+    rad4_booth_reduction_multiplier #(.WIDTH(`DWORDBITS)) inv_pwr3_mult (
+        .clk,
+        .rst,
+        .m(inv_pwr2),
+        .q(inv_pwr_delay[`DWORDMULTLATENCY-1]),
+        .p(p2)
+    );
+
+    always_ff @(posedge clk) begin
+        if (rst) inv_pwr_delay <= '0;
+        else inv_pwr_delay <= {inv_pwr_delay[`DWORDMULTLATENCY-2:0], inv_pwr};
     end
 
     // REGISTER UPDATE
@@ -93,16 +111,12 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) 
             half_delay <= '{default: '0};
             msb_reg <= 0;
             x_reg <= 0;
-            inv_pwr_reg <= 0;
-            inv_pwr2_reg <= 0;
             inv_pwr3_reg <= 0;
             rsqrt_out_reg <= 0;
 
         end else begin
             msb_reg <= msb;
             x_reg <= x;
-            inv_pwr_reg <= inv_pwr;
-            inv_pwr2_reg <= inv_pwr2;
             inv_pwr3_reg <= inv_pwr3;
             rsqrt_out_reg <= rsqrt_out;
 
@@ -124,7 +138,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 3*ITERS + 4) 
                 assign a_in = a;       // aligned in-cycle with guess
             end else begin : tail
                 assign y_in = stage_out[k-1];  // previous refined guess
-                assign a_in = a_delay[3*k-1];  // a delayed to match (3 cyc/stage)
+                assign a_in = a_delay[`RSQRTMULTLATENCY*k-1];  // a delayed to match (18 cyc/stage)
             end
 
             rsqrt_newton_step rns (

@@ -48,6 +48,17 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 // RSQRT OPERATION
 `define REF (`FRACBITS << 1)
 
+// latency of a single rad4_booth_reduction_multiplier instance, at WIDTH=32
+// (word_t) and WIDTH=64 (dword_t) respectively -- partial_prod_reg + p_reg +
+// one register per compressor tree level; the WIDTH=64 case is verified
+// against simulation/multiplier_tb.sv -- update these if the multiplier's
+// internal pipeline depth changes
+`define WORDMULTLATENCY 5
+`define DWORDMULTLATENCY 6
+
+// rsqrt_newton_step chains 3 dword_t multiplies per Newton iteration
+`define RSQRTMULTLATENCY (3*`DWORDMULTLATENCY)
+
 
 // STATE STRUCT
 typedef struct {
