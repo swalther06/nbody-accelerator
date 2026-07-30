@@ -1,6 +1,6 @@
 `include "defs.svh"
 
-// total module latency = 3 * 6 = 18
+// total module latency = 3*DWORDMULTLATENCY
 module rsqrt_newton_step(
     input clk,
     input rst,
@@ -9,7 +9,7 @@ module rsqrt_newton_step(
 
     output dword_t step_out
 );
-    localparam MULT_LATENCY = 6; // 6 cycles per 64 bit mult
+    localparam MULT_LATENCY = `DWORDMULTLATENCY; // 6 cycles per 64 bit mult
     
     dword_t [2*MULT_LATENCY-1:0] y_reg; 
     dword_t [MULT_LATENCY-1:0] a_reg;

@@ -1,4 +1,4 @@
-.PHONY: help sync fm blm render lut st_init sim mult_tb synth clean syn_search nuke
+.PHONY: help sync fm blm render lut st_init sim mult_tb accel_unit_tb synth clean syn_search nuke
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
 	@echo "  sim 	 - run accelerator_tb.sv in VCS (ORBIT=<config>, VCD=1 to dump waveform)"
 	@echo "  mult_tb - run multiplier_tb.sv in VCS (standalone rad4_booth_reduction_multiplier check)"
+	@echo "  accel_unit_tb - run accel_unit_tb.sv in VCS (standalone accel_unit check)"
 	@echo "  synth   - run Design Compiler synthesis (outputs to synthesis/)"
 	@echo "  clean   - remove build artifacts and output"
 	@echo ""
@@ -55,6 +56,9 @@ sim: st_init
 mult_tb:
 	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv multiplier_tb.sv +incdir+../rtl -top multiplier_tb -o simv_mult && ./simv_mult
 
+accel_unit_tb:
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv accel_unit_tb.sv +incdir+../rtl -top accel_unit_tb -o simv_accel_unit && ./simv_accel_unit
+
 synth:
 	mkdir -p synthesis/build
 	cd synthesis/build && dc_shell -x "set script_dir .." -f ../synth.tcl | tee ../synth.log
@@ -67,7 +71,7 @@ clean:
 	rm -f *.exe
 	rm -f modeling/*.exe
 	rm -f output/*
-	rm -rf simulation/csrc simulation/simv simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/simv_mult.daidir simulation/*.vpd simulation/*.fsdb 
+	rm -rf simulation/csrc simulation/simv simulation/simv_* simulation/ucli.key simulation/vc_hdrs.h simulation/DVEfiles simulation/*.vpd simulation/*.fsdb
 	rm -rf synthesis/build synthesis/cksum_dir
 	rm -rf synthesis/*.pvl
 	rm -rf synthesis/*.syn
@@ -77,7 +81,7 @@ nuke:
 	rm -f *.exe
 	rm -f modeling/*.exe
 	rm -f output/*
-	rm -rf simulation/csrc simulation/simv simulation/work simulation/simv.daidir simulation/ucli.key simulation/vc_hdrs.h simulation/simv_mult.daidir simulation/*.mem simulation/DVEfiles simulation/*.vpd simulation/*.fsdb 
+	rm -rf simulation/csrc simulation/simv simulation/simv_* simulation/work simulation/ucli.key simulation/vc_hdrs.h simulation/*.mem simulation/DVEfiles simulation/*.vpd simulation/*.fsdb
 	rm -rf synthesis/build synthesis/report synthesis/cksum_dir synthesis/logs
 	rm -rf synthesis/*.pvl
 	rm -rf synthesis/*.syn

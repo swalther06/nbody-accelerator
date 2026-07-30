@@ -25,20 +25,48 @@ module accelerator(
     localparam logic [2:0] S_DONE       = 3'd4;
     logic [2:0] fsm;
 
-    word_t vx_half [`N_PAD-1:0];
-    word_t vy_half [`N_PAD-1:0];
-    word_t vz_half [`N_PAD-1:0];
+    word_t [2:0] v_half [`N_PAD-1:0];
 
-    logic [`NUMPIPES-1:0] pos_v;
-    logic [`NUMPIPES-1:0] acc_v;
-    logic [`NUMPIPES-1:0] vel_v;
+    logic pos_v [`NUMPIPES-1:0];
+    logic acc_v [`NUMPIPES-1:0];
+    logic vel_v [`NUMPIPES-1:0];
 
     logic kd_restart, fe_restart, sk_restart;
     logic kd_done, fe_done, sk_done;
     word_t cycle_ctr;
     word_t t;
+    word_t t_next;
 
     logic commit_ready;
+
+    localparam NUM_DIV_STAGES = 8;
+    word_t num_total_steps;
+    word_t num_total_steps_m1;
+    word_t div_remainder;
+    logic div_by_zero;
+
+    DW_div_pipe #(
+        .a_width(`WORDBITS),
+        .b_width(`WORDBITS),
+        .tc_mode(1),
+        .rem_mode(1),
+        .num_stages(NUM_DIV_STAGES),
+        .stall_mode(1),
+        .rst_mode(1)
+    ) total_steps_div (
+        .clk(clk),
+        .rst_n(~rst),
+        .en(1'b1),
+        .a(tend + dt - 1),
+        .b(dt),
+        .quotient(num_total_steps),
+        .remainder(div_remainder),
+        .divide_by_0(div_by_zero)
+    );
+
+    // num_total_steps - 1 precomputed once so more_steps is a bare compare
+    // against state_counter, no per-cycle addition at all.
+    assign num_total_steps_m1 = num_total_steps - 1;
 
     PaddedState cur_state;
     PaddedState next_state;
@@ -53,20 +81,12 @@ module accelerator(
     // (the connection is resolved at elaboration time, before jump has a
     // value), so each lane drives a fixed (genvar-indexed) wire here and a
     // always_ff scatters it into the padded array using jump
-    word_t rx_new_lane [`NUMPIPES-1:0];
-    word_t ry_new_lane [`NUMPIPES-1:0];
-    word_t rz_new_lane [`NUMPIPES-1:0];
-    word_t vx_half_lane [`NUMPIPES-1:0];
-    word_t vy_half_lane [`NUMPIPES-1:0];
-    word_t vz_half_lane [`NUMPIPES-1:0];
+    word_t [2:0] r_new_lane [`NUMPIPES-1:0];
+    word_t [2:0] v_half_lane [`NUMPIPES-1:0];
 
-    word_t ax_out_lane [`NUMPIPES-1:0];
-    word_t ay_out_lane [`NUMPIPES-1:0];
-    word_t az_out_lane [`NUMPIPES-1:0];
+    word_t [2:0] a_out_lane [`NUMPIPES-1:0];
 
-    word_t vx_new_lane [`NUMPIPES-1:0];
-    word_t vy_new_lane [`NUMPIPES-1:0];
-    word_t vz_new_lane [`NUMPIPES-1:0];
+    word_t [2:0] v_new_lane [`NUMPIPES-1:0];
 
     genvar i;
     generate
@@ -75,12 +95,12 @@ module accelerator(
                 .clk,
                 .rst,
                 .restart(kd_restart),
-                .rx_old(cur_state.rx[jump+i]), .ry_old(cur_state.ry[jump+i]), .rz_old(cur_state.rz[jump+i]),
-                .vx_old(cur_state.vx[jump+i]), .vy_old(cur_state.vy[jump+i]), .vz_old(cur_state.vz[jump+i]),
-                .ax_old(cur_state.ax[jump+i]), .ay_old(cur_state.ay[jump+i]), .az_old(cur_state.az[jump+i]),
+                .r_old(cur_state.r[jump+i]),
+                .v_old(cur_state.v[jump+i]),
+                .a_old(cur_state.a[jump+i]),
                 .dt(dt),
-                .rx_new(rx_new_lane[i]),  .ry_new(ry_new_lane[i]),  .rz_new(rz_new_lane[i]),
-                .vx_half(vx_half_lane[i]), .vy_half(vy_half_lane[i]), .vz_half(vz_half_lane[i]),
+                .r_new(r_new_lane[i]),
+                .v_half(v_half_lane[i]),
                 .pos_valid(pos_v[i])
             );
         end
@@ -92,10 +112,10 @@ module accelerator(
                 .clk,
                 .rst,
                 .restart(fe_restart),
-                .rx_new(next_state.rx), .ry_new(next_state.ry), .rz_new(next_state.rz),
+                .r_new(next_state.r),
                 .m(cur_state.m),
                 .p_i($clog2(`N_PAD)'(jump+i)),
-                .ax_out(ax_out_lane[i]), .ay_out(ay_out_lane[i]), .az_out(az_out_lane[i]),
+                .a_out(a_out_lane[i]),
                 .acc_valid(acc_v[i])
             );
         end
@@ -107,10 +127,10 @@ module accelerator(
                 .clk,
                 .rst,
                 .restart(sk_restart),
-                .vx_half(vx_half[jump+i]), .vy_half(vy_half[jump+i]), .vz_half(vz_half[jump+i]),
-                .ax_new(next_state.ax[jump+i]), .ay_new(next_state.ay[jump+i]), .az_new(next_state.az[jump+i]),
+                .v_half(v_half[jump+i]),
+                .a_new(next_state.a[jump+i]),
                 .dt(dt),
-                .vx_new(vx_new_lane[i]), .vy_new(vy_new_lane[i]), .vz_new(vz_new_lane[i]),
+                .v_new(v_new_lane[i]),
                 .vel_valid(vel_v[i])
             );
         end
@@ -127,38 +147,28 @@ module accelerator(
     always_ff @(posedge clk) begin
         if (restart) begin
             for (int k = `N; k < `N_PAD; k++) begin
-                next_state.rx[k] <= 0;
-                next_state.ry[k] <= 0;
-                next_state.rz[k] <= 0;
+                next_state.r[k] <= 0;
                 next_state.m[k]  <= 0;
             end
         end
 
         if (fsm == S_KICKDRIFT && kd_done) begin
             for (int lane = 0; lane < `NUMPIPES; lane++) begin
-                next_state.rx[jump+lane] <= rx_new_lane[lane];
-                next_state.ry[jump+lane] <= ry_new_lane[lane];
-                next_state.rz[jump+lane] <= rz_new_lane[lane];
-                vx_half[jump+lane] <= vx_half_lane[lane];
-                vy_half[jump+lane] <= vy_half_lane[lane];
-                vz_half[jump+lane] <= vz_half_lane[lane];
+                next_state.r[jump+lane] <= r_new_lane[lane];
+                v_half[jump+lane] <= v_half_lane[lane];
                 next_state.m[jump+lane] <= cur_state.m[jump+lane];
             end
         end
 
         if (fsm == S_FORCE && fe_done) begin
             for (int lane = 0; lane < `NUMPIPES; lane++) begin
-                next_state.ax[jump+lane] <= ax_out_lane[lane];
-                next_state.ay[jump+lane] <= ay_out_lane[lane];
-                next_state.az[jump+lane] <= az_out_lane[lane];
+                next_state.a[jump+lane] <= a_out_lane[lane];
             end
         end
 
         if (fsm == S_SECONDKICK && sk_done) begin
             for (int lane = 0; lane < `NUMPIPES; lane++) begin
-                next_state.vx[jump+lane] <= vx_new_lane[lane];
-                next_state.vy[jump+lane] <= vy_new_lane[lane];
-                next_state.vz[jump+lane] <= vz_new_lane[lane];
+                next_state.v[jump+lane] <= v_new_lane[lane];
             end
         end
     end
@@ -173,7 +183,7 @@ module accelerator(
         kd_done = pos_v[0];
         fe_done = acc_v[0];
         sk_done = vel_v[0];
-        more_steps = (t + dt) < tend;
+        more_steps = state_counter < num_total_steps_m1;
         last_cycle = (cycle_ctr == num_cycles-1);
 
         kd_restart = 0;
@@ -208,6 +218,15 @@ module accelerator(
         else commit_ready <= (fsm == S_SECONDKICK) && sk_done && last_cycle;
     end
 
+    // t+dt computed continuously (not gated on commit_ready) so it's already
+    // settled -- with the full slack of a KICKDRIFT+FORCE+SECONDKICK step to
+    // spare -- by the time S_SECONDKICK's commit actually needs it, instead
+    // of racing the clock on the same cycle as the commit.
+    always_ff @(posedge clk) begin
+        if (rst) t_next <= 0;
+        else t_next <= t + dt;
+    end
+
     // tiling N to NUMPIPES: advance cycle_ctr through each batch of a phase,
     // wrapping back to 0 once the phase has covered all N particles
     always_ff @(posedge clk) begin
@@ -238,26 +257,14 @@ module accelerator(
                         // copy the real N bodies in; zero-pad the rest (mass 0 -> no force in or out)
                         for (int k = 0; k < `N_PAD; k++) begin
                             if (k < `N) begin
-                                cur_state.rx[k] <= st_init.rx[k];
-                                cur_state.ry[k] <= st_init.ry[k];
-                                cur_state.rz[k] <= st_init.rz[k];
-                                cur_state.vx[k] <= st_init.vx[k];
-                                cur_state.vy[k] <= st_init.vy[k];
-                                cur_state.vz[k] <= st_init.vz[k];
-                                cur_state.ax[k] <= st_init.ax[k];
-                                cur_state.ay[k] <= st_init.ay[k];
-                                cur_state.az[k] <= st_init.az[k];
+                                cur_state.r[k] <= st_init.r[k];
+                                cur_state.v[k] <= st_init.v[k];
+                                cur_state.a[k] <= st_init.a[k];
                                 cur_state.m[k]  <= st_init.m[k];
                             end else begin
-                                cur_state.rx[k] <= 0;
-                                cur_state.ry[k] <= 0;
-                                cur_state.rz[k] <= 0;
-                                cur_state.vx[k] <= 0;
-                                cur_state.vy[k] <= 0;
-                                cur_state.vz[k] <= 0;
-                                cur_state.ax[k] <= 0;
-                                cur_state.ay[k] <= 0;
-                                cur_state.az[k] <= 0;
+                                cur_state.r[k] <= 0;
+                                cur_state.v[k] <= 0;
+                                cur_state.a[k] <= 0;
                                 cur_state.m[k]  <= 0;
                             end
                         end
@@ -282,7 +289,7 @@ module accelerator(
                 S_SECONDKICK: begin
                     if (commit_ready) begin
                         cur_state <= next_state;
-                        t    <= t + dt;
+                        t    <= t_next;
                         state_counter <= state_counter + 1;
                         if (more_steps) begin
                             fsm <= S_KICKDRIFT;
@@ -305,15 +312,9 @@ module accelerator(
     // only the first N entries of the padded state are real bodies
     generate
         for (i = 0; i < `N; i++) begin : COPYOUT
-            assign st_out.rx[i] = cur_state.rx[i];
-            assign st_out.ry[i] = cur_state.ry[i];
-            assign st_out.rz[i] = cur_state.rz[i];
-            assign st_out.vx[i] = cur_state.vx[i];
-            assign st_out.vy[i] = cur_state.vy[i];
-            assign st_out.vz[i] = cur_state.vz[i];
-            assign st_out.ax[i] = cur_state.ax[i];
-            assign st_out.ay[i] = cur_state.ay[i];
-            assign st_out.az[i] = cur_state.az[i];
+            assign st_out.r[i] = cur_state.r[i];
+            assign st_out.v[i] = cur_state.v[i];
+            assign st_out.a[i] = cur_state.a[i];
             assign st_out.m[i]  = cur_state.m[i];
         end
     endgenerate

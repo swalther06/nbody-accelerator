@@ -14,8 +14,8 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."   # repo root
 
-HIGH=${1:-78}
-PRECISION=${2:-0.5}
+HIGH=${1:-10}
+PRECISION=${2:-0.05}
 DAMPING=${3:-1.0}
 MAX_ITERS=${4:-8}
 

@@ -46,30 +46,22 @@ module compressor_4_2_tree #(parameter WIDTH = 64, parameter TRIPLES = 16) (
                 logic [WIDTH-1:0] carry_w;
                 logic [WIDTH-1:0] sum_w;
 
-                for (genvar b = 0; b < WIDTH; b++) begin : col
-                    wire s_bit, c_bit, co_bit;    // individual wires per instance
-                    wire ci_bit;
+                // inline compressor_4_2.sv here to reduce port connections and speed up simulation
+                always_comb begin
+                    for (int b = 0; b < WIDTH; b++) begin
+                        logic x1, x2, x3, x4, ci_bit, s;
+                        x1 = tree_r[lvl][grp*4+0][b];
+                        x2 = tree_r[lvl][grp*4+1][b];
+                        x3 = tree_r[lvl][grp*4+2][b];
+                        x4 = tree_r[lvl][grp*4+3][b];
+                        ci_bit = (b == 0) ? 1'b0 : cout_w[b-1];
 
-                    if (b == 0) begin : ci_head
-                        assign ci_bit = 1'b0;
-                    end else begin : ci_tail
-                        assign ci_bit = cout_w[b-1];
+                        s = x1 ^ x2 ^ x3;
+                        cout_w[b] = (x1 & x2) | (x3 & (x1 ^ x2));
+
+                        sum_w[b]   = s ^ x4 ^ ci_bit;
+                        carry_w[b] = (s & x4) | (ci_bit & (s ^ x4));
                     end
-
-                    compressor_4_2 u_comp (
-                        .x1   (tree_r[lvl][grp*4+0][b]),
-                        .x2   (tree_r[lvl][grp*4+1][b]),
-                        .x3   (tree_r[lvl][grp*4+2][b]),
-                        .x4   (tree_r[lvl][grp*4+3][b]),
-                        .ci  (ci_bit),
-                        .sum  (s_bit),
-                        .carry(c_bit),
-                        .co (co_bit)
-                    );
-
-                    assign sum_w[b]   = s_bit;
-                    assign carry_w[b] = c_bit;
-                    assign cout_w[b]  = co_bit;
                 end
 
                 assign tree_w[lvl+1][grp*2] = sum_w;

@@ -21,7 +21,8 @@ output/
 # VCS build artifacts
 simulation/csrc/
 simulation/simv
-simulation/simv.daidir/
+simulation/simv_*
+simulation/*.daidir/
 simulation/ucli.key
 simulation/vc_hdrs.h
 simulation/DVEfiles/

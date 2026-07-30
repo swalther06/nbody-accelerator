@@ -62,15 +62,9 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 // STATE STRUCT
 typedef struct {
-    word_t rx [`N-1:0];
-    word_t ry [`N-1:0];
-    word_t rz [`N-1:0];
-    word_t vx [`N-1:0];
-    word_t vy [`N-1:0];
-    word_t vz [`N-1:0];
-    word_t ax [`N-1:0];
-    word_t ay [`N-1:0];
-    word_t az [`N-1:0];
+    word_t [2:0] r [`N-1:0];
+    word_t [2:0] v [`N-1:0];
+    word_t [2:0] a [`N-1:0];
     word_t m [`N-1:0];
 } State;
 
@@ -78,15 +72,9 @@ typedef struct {
 // the last (ragged) batch indexing past the end of the array; padding
 // slots get mass 0 so they exert/feel no force
 typedef struct {
-    word_t rx [`N_PAD-1:0];
-    word_t ry [`N_PAD-1:0];
-    word_t rz [`N_PAD-1:0];
-    word_t vx [`N_PAD-1:0];
-    word_t vy [`N_PAD-1:0];
-    word_t vz [`N_PAD-1:0];
-    word_t ax [`N_PAD-1:0];
-    word_t ay [`N_PAD-1:0];
-    word_t az [`N_PAD-1:0];
+    word_t [2:0] r [`N_PAD-1:0];
+    word_t [2:0] v [`N_PAD-1:0];
+    word_t [2:0] a [`N_PAD-1:0];
     word_t m [`N_PAD-1:0];
 } PaddedState;
 

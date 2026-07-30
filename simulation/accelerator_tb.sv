@@ -43,16 +43,16 @@ module accelerator_tb;
         for (int p = 0; p < `N; p++) begin
             $fwrite(csv_file, "%0d,%.10g,%0d,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g,%.10g\n",
                 step, t_real, p,
-                real'(st.rx[p]) / real'(`FRACSCALE),
-                real'(st.ry[p]) / real'(`FRACSCALE),
-                real'(st.rz[p]) / real'(`FRACSCALE),
-                real'(st.vx[p]) / real'(`FRACSCALE),
-                real'(st.vy[p]) / real'(`FRACSCALE),
-                real'(st.vz[p]) / real'(`FRACSCALE),
-                real'(st.ax[p]) / real'(`FRACSCALE),
-                real'(st.ay[p]) / real'(`FRACSCALE),
-                real'(st.az[p]) / real'(`FRACSCALE),
-                real'(st.m[p])  / real'(`FRACSCALE));
+                real'(st.r[p][0]) / real'(`FRACSCALE),
+                real'(st.r[p][1]) / real'(`FRACSCALE),
+                real'(st.r[p][2]) / real'(`FRACSCALE),
+                real'(st.v[p][0]) / real'(`FRACSCALE),
+                real'(st.v[p][1]) / real'(`FRACSCALE),
+                real'(st.v[p][2]) / real'(`FRACSCALE),
+                real'(st.a[p][0]) / real'(`FRACSCALE),
+                real'(st.a[p][1]) / real'(`FRACSCALE),
+                real'(st.a[p][2]) / real'(`FRACSCALE),
+                real'(st.m[p])    / real'(`FRACSCALE));
         end
     endfunction
 
@@ -75,16 +75,12 @@ module accelerator_tb;
         // load the orbit config baked into st_init.mem (make st_init ORBIT=<config>)
         $readmemh("st_init.mem", st_init_mem);
         for (int i = 0; i < `N; i++) begin
-            st_init.rx[i] = st_init_mem[0*`N + i];
-            st_init.ry[i] = st_init_mem[1*`N + i];
-            st_init.rz[i] = st_init_mem[2*`N + i];
-            st_init.vx[i] = st_init_mem[3*`N + i];
-            st_init.vy[i] = st_init_mem[4*`N + i];
-            st_init.vz[i] = st_init_mem[5*`N + i];
-            st_init.ax[i] = st_init_mem[6*`N + i];
-            st_init.ay[i] = st_init_mem[7*`N + i];
-            st_init.az[i] = st_init_mem[8*`N + i];
-            st_init.m[i]  = st_init_mem[9*`N + i];
+            for (int dir = 0; dir < 3; dir++) begin
+                st_init.r[i][dir] = st_init_mem[dir*`N + i];
+                st_init.v[i][dir] = st_init_mem[(3+dir)*`N + i];
+                st_init.a[i][dir] = st_init_mem[(6+dir)*`N + i];
+            end
+            st_init.m[i] = st_init_mem[9*`N + i];
         end
 
         #20;
@@ -92,7 +88,7 @@ module accelerator_tb;
         // dt=0.01 matches figure8's suggested dt in modeling/orbits.csv
         // (re-check this if simulating a config with a different dt).
         dt = 32'h000028F6;
-        tend = 32'h00100000;
+        tend = 32'h00400000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");

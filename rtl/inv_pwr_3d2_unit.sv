@@ -1,6 +1,12 @@
 `include "defs.svh"
 
-module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = `RSQRTMULTLATENCY*ITERS + 2*`DWORDMULTLATENCY + 3) (
+// 1 cycle delay for registering msb
+// 1 cycle delay for registering rsqrt_out
+// ITERSCYCLES delay for calculating inv_sqrt
+// 2*`DWORDMULTLATENCY for calculating inv_pwr3
+// 1 cycle delay for registering inv_pwr3
+// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 3 cycles delay
+module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     input clk,
     input rst,
     input dword_t x,
