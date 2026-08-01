@@ -88,7 +88,7 @@ module accelerator_tb;
         // dt=0.01 matches figure8's suggested dt in modeling/orbits.csv
         // (re-check this if simulating a config with a different dt).
         dt = 32'h000028F6;
-        tend = 32'h00400000;
+        tend = 32'h00100000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");

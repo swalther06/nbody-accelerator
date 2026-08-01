@@ -5,7 +5,7 @@ module compressor_4_2_tree #(parameter WIDTH = 64, parameter TRIPLES = 16) (
     input clk,
     input rst,
 
-    input logic [WIDTH-1:0] partial_prod [TRIPLES-1:0],
+    input logic signed [WIDTH-1:0] partial_prod [TRIPLES-1:0],
     output logic [WIDTH-1:0] sum_out,
     output logic [WIDTH-1:0] carry_out
 );  
@@ -72,19 +72,28 @@ module compressor_4_2_tree #(parameter WIDTH = 64, parameter TRIPLES = 16) (
                 assign tree_w[lvl+1][GROUPS*2 + rdr] = tree_r[lvl][GROUPS*4 + rdr];
             end
 
-            always_ff @(posedge clk) begin
-                if (rst) begin
-                    for (int i = 0; i < SIZES[lvl+1]; i++) begin
-                        tree_r[lvl+1][i] <= '0;
+            // register every 2nd level
+            localparam bit IS_REG_BOUNDARY = (lvl % 2 == 1) || (lvl == LEVELS-1);
+
+            if (IS_REG_BOUNDARY) begin : reg_stage
+                always_ff @(posedge clk) begin
+                    if (rst) begin
+                        for (int i = 0; i < SIZES[lvl+1]; i++) begin
+                            tree_r[lvl+1][i] <= '0;
+                        end
+                    end else begin
+                        for (int i = 0; i < SIZES[lvl+1]; i++) begin
+                            tree_r[lvl+1][i] <= tree_w[lvl+1][i];
+                        end
                     end
-                end else begin
-                    for (int i = 0; i < SIZES[lvl+1]; i++) begin
-                        tree_r[lvl+1][i] <= tree_w[lvl+1][i];
-                    end
+                end
+            end else begin : wire_stage
+                for (genvar i = 0; i < SIZES[lvl+1]; i++) begin : passthru_wire
+                    assign tree_r[lvl+1][i] = tree_w[lvl+1][i];
                 end
             end
         end
-    endgenerate 
+    endgenerate
 
     assign sum_out = tree_r[LEVELS][0];
     assign carry_out = tree_r[LEVELS][1];

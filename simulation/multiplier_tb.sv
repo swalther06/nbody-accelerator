@@ -8,7 +8,7 @@ module multiplier_tb;
     // best-known pipeline latency (cycles from an input being applied to its
     // result appearing on p); bump this if latency_probe below reports the
     // DUT settling later than this.
-    localparam int LATENCY = 5;
+    localparam int LATENCY = 4;
 
     logic clk;
     logic rst;

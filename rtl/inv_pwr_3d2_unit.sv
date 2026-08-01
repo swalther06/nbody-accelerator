@@ -1,11 +1,12 @@
 `include "defs.svh"
 
 // 1 cycle delay for registering msb
+// 1 cycle delay for registering k and shift
 // 1 cycle delay for registering rsqrt_out
 // ITERSCYCLES delay for calculating inv_sqrt
 // 2*`DWORDMULTLATENCY for calculating inv_pwr3
 // 1 cycle delay for registering inv_pwr3
-// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 3 cycles delay
+// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 4 cycles delay
 module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     input clk,
     input rst,
@@ -35,7 +36,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     // MSB DETERMINATION
     int msb;
     int msb_reg;
-    dword_t x_reg;
+    dword_t [1:0] x_reg;
     always_comb begin
         msb = -1;
         for (int i = 0; i < `DWORDBITS; i++) begin
@@ -45,29 +46,30 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
 
 
     // MANTISSA, A, HALF, RSQRT CALCULATION
+    int k_reg, shift_reg;
+    int k, k_even, shift;
     always_comb begin
-        int k, k_even, shift;
         int norm_shift;
 
         k = msb_reg - `REF;
-        parity = k[0];
-        k_even = k - int'(parity);
+        parity = k_reg[0];
+        k_even = {k_reg[`WORDBITS-1:1],1'b0};
 
         shift = msb_reg - `LUTBITS;
 
-        mantissa =  shift >= 0
-            ? `LUTBITS'((x_reg >> shift) & ((1 << `LUTBITS) - 1)) 
-            : `LUTBITS'((x_reg << (-shift)) & ((1 << `LUTBITS) - 1));
+        mantissa =  shift_reg[`WORDBITS-1]
+            ? `LUTBITS'((x_reg[1] << (-shift_reg)) & ((1 << `LUTBITS) - 1))
+            : `LUTBITS'((x_reg[1] >> shift_reg) & ((1 << `LUTBITS) - 1)) ;
 
         norm_shift = (`DENOMFRAC - `SEEDFRAC) + k_even;
-        a = (norm_shift >= 0) ? (x_reg >> norm_shift) : (x_reg << (-norm_shift));
+        a = norm_shift[`WORDBITS-1] ? (x_reg[1] << (-norm_shift)) : (x_reg[1] >> norm_shift); // TODO split into 2 cycles
 
         half = k_even >>> 1;
 
         guess_final = stage_out[ITERS-1];
-        rsqrt_out = (half_delay[ITERSCYCLES-1] >= 0)
-            ? (guess_final >> half_delay[ITERSCYCLES-1])
-            : (guess_final << (-half_delay[ITERSCYCLES-1]));
+        rsqrt_out = (half_delay[ITERSCYCLES-1][`WORDBITS-1])
+            ? (guess_final << (-half_delay[ITERSCYCLES-1]))
+            : (guess_final >> half_delay[ITERSCYCLES-1]);
     end
 
 
@@ -119,12 +121,16 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
             x_reg <= 0;
             inv_pwr3_reg <= 0;
             rsqrt_out_reg <= 0;
+            k_reg <= 0;
+            shift_reg <= 0;
 
         end else begin
             msb_reg <= msb;
-            x_reg <= x;
+            x_reg <= {x_reg[0], x};
             inv_pwr3_reg <= inv_pwr3;
             rsqrt_out_reg <= rsqrt_out;
+            k_reg <= k;
+            shift_reg <= shift;
 
             a_delay[0]    <= a;
             half_delay[0] <= half;
@@ -135,16 +141,16 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
         end
     end
 
-    genvar k;
+    genvar i;
     generate
-        for (k = 0; k < ITERS; k++) begin : newton_stage
+        for (i = 0; i < ITERS; i++) begin : newton_stage
             dword_t y_in, a_in;
-            if (k == 0) begin : head
+            if (i == 0) begin : head
                 assign y_in = guess;   // LUT seed
                 assign a_in = a;       // aligned in-cycle with guess
             end else begin : tail
-                assign y_in = stage_out[k-1];  // previous refined guess
-                assign a_in = a_delay[`RSQRTMULTLATENCY*k-1];  // a delayed to match (18 cyc/stage)
+                assign y_in = stage_out[i-1];  // previous refined guess
+                assign a_in = a_delay[`RSQRTMULTLATENCY*i-1];  // a delayed to match (18 cyc/stage)
             end
 
             rsqrt_newton_step rns (
@@ -152,7 +158,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
                 .rst,
                 .a(a_in),
                 .y(y_in),
-                .step_out(stage_out[k])
+                .step_out(stage_out[i])
             );
         end
     endgenerate

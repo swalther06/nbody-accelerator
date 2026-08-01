@@ -48,9 +48,15 @@ VCD ?= 0
 VCD_ARG := $(if $(filter 0,$(VCD)),,+VCD)
 DEBUG_ARG := $(if $(filter 0,$(VCD)),,-debug_access+all)
 
+# accelerator.sv instantiates DW_div_pipe (see accelerator.sv's num_total_steps
+# comment); VCS needs the DesignWare behavioral sim models to resolve it, plus
+# an incdir so DW_div.v's own `include finds DW_div_function.inc alongside it.
+DW_SIM_LIB := /usr/caen/synopsys-synth-2023.12-SP5/dw/sim_ver
+DW_ARGS := -y $(DW_SIM_LIB) +libext+.v +incdir+$(DW_SIM_LIB)
+
 sim: st_init
 	mkdir -p output
-	tmux new-session -d -s sim_run 'cd simulation  && vcs -sverilog -full64 -timescale=1ns/1ps $(DEBUG_ARG) ../rtl/*.sv accelerator_tb.sv +incdir+../rtl -top accelerator_tb -o simv && ./simv $(VCD_ARG); echo "--- done, press enter to close ---"; read'
+	tmux new-session -d -s sim_run 'cd simulation  && vcs -sverilog -full64 -timescale=1ns/1ps $(DEBUG_ARG) ../rtl/*.sv accelerator_tb.sv +incdir+../rtl $(DW_ARGS) -top accelerator_tb -o simv && ./simv $(VCD_ARG); echo "--- done, press enter to close ---"; read'
 	@echo 'started in tmux session 'sim_run''
 
 mult_tb:

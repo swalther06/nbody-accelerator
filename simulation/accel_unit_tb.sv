@@ -9,7 +9,7 @@ module accel_unit_tb;
     // best-known pipeline latency (cycles from an (r_i,r_j,m_j) input being
     // applied to a_i_out settling); bump this if latency_probe below reports
     // the DUT settling later than this.
-    localparam int LATENCY = 64;
+    localparam int LATENCY = 45;
 
     logic clk;
     logic rst;

@@ -10,8 +10,8 @@ module rad4_booth_reduction_multiplier #(parameter WIDTH=32)(
 );  
     localparam TRIPLES = WIDTH/2;
     logic [2:0] triplet [TRIPLES-1:0];
-    logic [2*WIDTH-1:0] partial_prod [TRIPLES-1:0];
-    logic [2*WIDTH-1:0] partial_prod_reg [TRIPLES-1:0];
+    logic signed [2*WIDTH-1:0] partial_prod [TRIPLES-1:0];
+    logic signed [2*WIDTH-1:0] partial_prod_reg [TRIPLES-1:0];
 
     always_comb begin : triplet_muxing
         for (int i = 0; i < TRIPLES; i++) begin

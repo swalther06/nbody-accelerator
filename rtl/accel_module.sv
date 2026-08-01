@@ -29,17 +29,27 @@ module accel_module(
     word_t [2:0] a_wire [`NUMLANES-1:0];
 
     logic [`NUMLANES-1:0] au_valid;
+    logic [1:0] au_valid_reg [`NUMLANES-1:0];
     logic done_accumulating;
 
-    word_t [2:0] a_sum;
+    // rewiring to satisfy systemverilog
+    word_t a_wire_t [2:0][`NUMLANES-1:0];
     always_comb begin
-        a_sum = 0;
         for (int k = 0; k < `NUMLANES; k++) begin
-            for (int dir = 0; dir < 3; dir++) begin
-                a_sum[dir] += a_wire[k][dir];
+            for (int d = 0; d < 3; d++) begin
+                a_wire_t[d][k] = a_wire[k][d];
             end
         end
     end
+
+    // 2 cycle latency here
+    word_t [2:0] a_sum;
+    accumulator_piplined #(.WIDTH(`WORDBITS), .NUM_INPS(`NUMLANES)) accel_accumulator [2:0] (
+        .clk,
+        .rst,
+        .inp(a_wire_t),
+        .acc(a_sum)
+    );
 
     // tracks in_ctr combinationally (a module-scope declaration assignment
     // would only initialize once at time 0, not follow in_ctr)
@@ -71,8 +81,9 @@ module accel_module(
             a_reg <= 0;
             done_accumulating <= 0;
             cycle_ctr <= 0;
+            au_valid_reg <= '{default : 0};
         end else begin
-            if (au_valid[0] && cycle_ctr < num_cycles) begin
+            if (au_valid_reg[0][1] && cycle_ctr < num_cycles) begin
                 for (int dir = 0; dir < 3; dir++) begin
                     a_reg[dir] <= a_reg[dir] + a_sum[dir];
                 end
@@ -81,6 +92,9 @@ module accel_module(
                 if (cycle_ctr == num_cycles - 1) begin
                     done_accumulating <= 1;
                 end
+            end
+            for (int lane = 0; lane < `NUMLANES; lane++) begin
+                au_valid_reg[lane] <= {au_valid_reg[lane][0], au_valid[lane]};
             end
         end
     end
