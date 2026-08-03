@@ -18,7 +18,7 @@ module accel_unit #(parameter ITERS = 2) (
     output logic accel_valid
 );
     localparam DENOM_LATENCY = `WORDMULTLATENCY + 1;
-    localparam INV_PWR_LATENCY = DENOM_LATENCY + ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 4;
+    localparam INV_PWR_LATENCY = DENOM_LATENCY + ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 5;
     localparam MD_LATENCY = INV_PWR_LATENCY - `WORDMULTLATENCY;
     localparam VALID_LATENCY = (`DWORDMULTLATENCY + 2);
 

@@ -83,7 +83,7 @@ module accel_module(
             cycle_ctr <= 0;
             au_valid_reg <= '{default : 0};
         end else begin
-            if (au_valid_reg[0][1] && cycle_ctr < num_cycles) begin
+            if (au_valid_reg[0][1]) begin
                 for (int dir = 0; dir < 3; dir++) begin
                     a_reg[dir] <= a_reg[dir] + a_sum[dir];
                 end

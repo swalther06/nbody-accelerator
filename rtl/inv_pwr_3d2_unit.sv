@@ -2,11 +2,12 @@
 
 // 1 cycle delay for registering msb
 // 1 cycle delay for registering k and shift
+// 1 cycle delay for registering norm_shift
 // 1 cycle delay for registering rsqrt_out
 // ITERSCYCLES delay for calculating inv_sqrt
 // 2*`DWORDMULTLATENCY for calculating inv_pwr3
 // 1 cycle delay for registering inv_pwr3
-// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 4 cycles delay
+// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 5 cycles delay
 module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     input clk,
     input rst,
@@ -19,12 +20,14 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     localparam ITERSCYCLES = ITERS*`RSQRTMULTLATENCY;
 
     dword_t a_delay [ITERSCYCLES-1:0];
-    word_t  half_delay [ITERSCYCLES-1:0];
+    word_t half_delay [ITERSCYCLES:0];
+    word_t half_neg_delay [ITERSCYCLES:0];
 
     dword_t stage_out [ITERS-1:0];
 
     dword_t a;
     word_t half;
+    word_t half_neg;
     dword_t guess;          // from LUT
     dword_t rsqrt_out;
     dword_t guess_final;    // fully-refined guess, tail of the chain
@@ -36,7 +39,7 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     // MSB DETERMINATION
     int msb;
     int msb_reg;
-    dword_t [1:0] x_reg;
+    dword_t [2:0] x_reg;
     always_comb begin
         msb = -1;
         for (int i = 0; i < `DWORDBITS; i++) begin
@@ -46,30 +49,41 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
 
 
     // MANTISSA, A, HALF, RSQRT CALCULATION
-    int k_reg, shift_reg;
-    int k, k_even, shift;
-    always_comb begin
-        int norm_shift;
+    int k_reg, shift_reg, shift_neg_reg;
+    int k, k_even, shift, shift_neg;
 
+    dword_t guess_reg;   // 1 cycle: matches the norm_shift_reg cycle that `a` picked up but mantissa/guess didn't
+
+    int norm_shift, norm_shift_neg;
+    int norm_shift_reg, norm_shift_neg_reg;
+
+    localparam int NORM_CONST        = (`DENOMFRAC - `SEEDFRAC);
+    localparam int NORM_CONST_NEG_P1 = -NORM_CONST + 1;
+
+    always_comb begin
         k = msb_reg - `REF;
         parity = k_reg[0];
         k_even = {k_reg[`WORDBITS-1:1],1'b0};
 
         shift = msb_reg - `LUTBITS;
+        shift_neg = `LUTBITS - msb_reg;
 
         mantissa =  shift_reg[`WORDBITS-1]
-            ? `LUTBITS'((x_reg[1] << (-shift_reg)) & ((1 << `LUTBITS) - 1))
+            ? `LUTBITS'((x_reg[1] << shift_neg_reg) & ((1 << `LUTBITS) - 1))
             : `LUTBITS'((x_reg[1] >> shift_reg) & ((1 << `LUTBITS) - 1)) ;
 
-        norm_shift = (`DENOMFRAC - `SEEDFRAC) + k_even;
-        a = norm_shift[`WORDBITS-1] ? (x_reg[1] << (-norm_shift)) : (x_reg[1] >> norm_shift); // TODO split into 2 cycles
+        norm_shift     = NORM_CONST        + k_even;
+        norm_shift_neg = NORM_CONST_NEG_P1 + (~k_even);   // computed independently of norm_shift, not derived from it
+
+        a = norm_shift_reg[`WORDBITS-1] ? (x_reg[2] << norm_shift_neg_reg) : (x_reg[2] >> norm_shift_reg); // TODO split into 2 cycles
 
         half = k_even >>> 1;
+        half_neg = -half;
 
         guess_final = stage_out[ITERS-1];
-        rsqrt_out = (half_delay[ITERSCYCLES-1][`WORDBITS-1])
-            ? (guess_final << (-half_delay[ITERSCYCLES-1]))
-            : (guess_final >> half_delay[ITERSCYCLES-1]);
+        rsqrt_out = (half_delay[ITERSCYCLES][`WORDBITS-1])
+            ? (guess_final << (half_neg_delay[ITERSCYCLES]))
+            : (guess_final >> half_delay[ITERSCYCLES]);
     end
 
 
@@ -117,27 +131,40 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
         if (rst) begin
             a_delay <= '{default: '0};
             half_delay <= '{default: '0};
+            half_neg_delay <= '{default : '0};
             msb_reg <= 0;
             x_reg <= 0;
             inv_pwr3_reg <= 0;
             rsqrt_out_reg <= 0;
             k_reg <= 0;
             shift_reg <= 0;
+            shift_neg_reg <= 0;
+            norm_shift_reg <= 0;
+            norm_shift_neg_reg <= 0;
+            guess_reg <= 0;
 
         end else begin
             msb_reg <= msb;
-            x_reg <= {x_reg[0], x};
+            x_reg <= {x_reg[1:0], x};
             inv_pwr3_reg <= inv_pwr3;
             rsqrt_out_reg <= rsqrt_out;
             k_reg <= k;
             shift_reg <= shift;
+            shift_neg_reg <= shift_neg;
+            norm_shift_reg <= norm_shift;
+            norm_shift_neg_reg <= norm_shift_neg;
+            guess_reg <= guess;
 
             a_delay[0]    <= a;
             half_delay[0] <= half;
+            half_neg_delay[0] <= half_neg;
             for (int i = 1; i < ITERSCYCLES; i++) begin
                 a_delay[i]    <= a_delay[i-1];
                 half_delay[i] <= half_delay[i-1];
+                half_neg_delay[i] <= half_neg_delay[i-1];
             end
+            half_delay[ITERSCYCLES] <= half_delay[ITERSCYCLES-1];
+            half_neg_delay[ITERSCYCLES] <= half_neg_delay[ITERSCYCLES-1];
         end
     end
 
@@ -146,8 +173,8 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
         for (i = 0; i < ITERS; i++) begin : newton_stage
             dword_t y_in, a_in;
             if (i == 0) begin : head
-                assign y_in = guess;   // LUT seed
-                assign a_in = a;       // aligned in-cycle with guess
+                assign y_in = guess_reg;   // LUT seed, delayed 1 cycle to match `a`
+                assign a_in = a;           // comb -- a_delay[0] is one register beyond this, tail taps assume that baseline
             end else begin : tail
                 assign y_in = stage_out[i-1];  // previous refined guess
                 assign a_in = a_delay[`RSQRTMULTLATENCY*i-1];  // a delayed to match (18 cyc/stage)

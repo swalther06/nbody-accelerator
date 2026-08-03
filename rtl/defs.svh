@@ -12,7 +12,7 @@ typedef logic signed [`DWORDBITS-1:0] dword_t;
 typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 // NUMBER OF BODIES 
-`define N 10
+`define N 4
 `define NBITS $clog2(`N)
 
 // ACCELERATION SOFTENING - prevents massive accelerations from occuring due to close proximity
@@ -20,7 +20,7 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 
 // PIPE PARALLELIZATION - number of bodies processed at once
-`define NUMPIPES 1
+`define NUMPIPES 4
 
 // LANE PARALLELIZATION - number of accelerations calculated at once
 `define NUMLANES 4
