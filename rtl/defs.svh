@@ -12,7 +12,7 @@ typedef logic signed [`DWORDBITS-1:0] dword_t;
 typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 // NUMBER OF BODIES 
-`define N 4
+`define N 10
 `define NBITS $clog2(`N)
 
 // ACCELERATION SOFTENING - prevents massive accelerations from occuring due to close proximity
@@ -50,6 +50,14 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 `define WORDMULTLATENCY 4
 `define DWORDMULTLATENCY 4
+
+// accumulator_piplined's input->output latency: ceil(LEVELS/2) registered
+// stages inside compressor_4_2_tree plus its own acc_reg, where LEVELS is
+// $clog2(NUM_INPS)-1. Consumers (accel_module) must size their valid-shift
+// handshake from this rather than hardcoding a depth -- it is 1 for
+// NUM_INPS<=2, 2 for 4 and 8, 3 for 16. Verified against measured latency
+// in simulation/acc_latency_tb.sv.
+`define ACC_LATENCY(n) (((($clog2(n)-1)+1)/2) + 1)
 
 // rsqrt_newton_step chains 3 dword_t multiplies per Newton iteration
 `define RSQRTMULTLATENCY (3*`DWORDMULTLATENCY)

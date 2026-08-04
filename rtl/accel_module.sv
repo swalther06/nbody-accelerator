@@ -29,7 +29,17 @@ module accel_module(
     word_t [2:0] a_wire [`NUMLANES-1:0];
 
     logic [`NUMLANES-1:0] au_valid;
-    logic [1:0] au_valid_reg [`NUMLANES-1:0];
+
+    // au_valid has to be delayed by exactly the accumulator's latency so the
+    // accumulate below fires on the cycle a_sum is actually valid. That depth
+    // varies with NUMLANES (1 for <=2 lanes, 2 for 4/8, 3 for 16), so take it
+    // from `ACC_LATENCY instead of hardcoding it. VALID_W floors the vector at
+    // 2 bits purely to keep the [VALID_W-2:0] part-select below legal when the
+    // latency is 1; the tap is always at ACC_LATENCY-1.
+    localparam ACC_LATENCY = `ACC_LATENCY(`NUMLANES);
+    localparam VALID_W = (ACC_LATENCY < 2) ? 2 : ACC_LATENCY;
+
+    logic [VALID_W-1:0] au_valid_reg [`NUMLANES-1:0];
     logic done_accumulating;
 
     // rewiring to satisfy systemverilog
@@ -83,7 +93,7 @@ module accel_module(
             cycle_ctr <= 0;
             au_valid_reg <= '{default : 0};
         end else begin
-            if (au_valid_reg[0][1]) begin
+            if (au_valid_reg[0][ACC_LATENCY-1]) begin
                 for (int dir = 0; dir < 3; dir++) begin
                     a_reg[dir] <= a_reg[dir] + a_sum[dir];
                 end
@@ -94,7 +104,7 @@ module accel_module(
                 end
             end
             for (int lane = 0; lane < `NUMLANES; lane++) begin
-                au_valid_reg[lane] <= {au_valid_reg[lane][0], au_valid[lane]};
+                au_valid_reg[lane] <= {au_valid_reg[lane][VALID_W-2:0], au_valid[lane]};
             end
         end
     end

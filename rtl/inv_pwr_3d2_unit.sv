@@ -1,13 +1,14 @@
 `include "defs.svh"
 
-// 1 cycle delay for registering msb
+// 2 cycle delay for registering msb
 // 1 cycle delay for registering k and shift
 // 1 cycle delay for registering norm_shift
 // 1 cycle delay for registering rsqrt_out
+// 1 cycle delay for registering a
 // ITERSCYCLES delay for calculating inv_sqrt
 // 2*`DWORDMULTLATENCY for calculating inv_pwr3
 // 1 cycle delay for registering inv_pwr3
-// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 5 cycles delay
+// total = ITERS*`RSQRTMULTLATENCY + 2*`DWORDMULTLATENCY + 7 cycles delay
 module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     input clk,
     input rst,
@@ -17,11 +18,18 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     output logic valid,
     output dword_t result
 );  
-    localparam ITERSCYCLES = ITERS*`RSQRTMULTLATENCY;
+    localparam ITERSCYCLES = ITERS*`RSQRTMULTLATENCY+1;
+    localparam X_DELAY = 4;
+    localparam MSB_STAGES = 4;
+
+    localparam int SHW = $clog2(`DWORDBITS);   // 6 
 
     dword_t a_delay [ITERSCYCLES-1:0];
-    word_t half_delay [ITERSCYCLES:0];
-    word_t half_neg_delay [ITERSCYCLES:0];
+    // sign + magnitude instead of two full-width signed chains: the shift
+    // count is |half| whichever way we shift, so one SHW-bit magnitude and a
+    // direction bit carry the same information in 7 bits instead of 64.
+    logic           half_sign_delay [ITERSCYCLES:0];
+    logic [SHW-1:0] half_mag_delay  [ITERSCYCLES:0];
 
     dword_t stage_out [ITERS-1:0];
 
@@ -37,53 +45,84 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
 
 
     // MSB DETERMINATION
-    int msb;
-    int msb_reg;
-    dword_t [2:0] x_reg;
+    localparam int MSB_SLICE = `DWORDBITS/MSB_STAGES;   // bits scanned per stage
+
+    word_t [MSB_STAGES-1:0] msb;
+    word_t [MSB_STAGES-1:0] msb_reg;
+    word_t msb_abs, msb_abs_reg;
+    dword_t [X_DELAY-1:0] x_reg;
     always_comb begin
-        msb = -1;
-        for (int i = 0; i < `DWORDBITS; i++) begin
-            if (x[i]) msb = i;       // last write wins -> highest set bit
+        for (int stage = 0; stage < MSB_STAGES; stage++) begin
+            msb[stage] = -1;
+            for (int i = 0; i < MSB_SLICE; i++) begin
+                if (x[i+stage*MSB_SLICE]) msb[stage] = i;       // last write wins -> highest set bit
+            end
+        end
+    end
+
+    always_comb begin
+        msb_abs = -1;
+        for (int stage = 0; stage < MSB_STAGES; stage++) begin
+            if (msb_reg[stage] != -1) msb_abs = msb_reg[stage] + stage*MSB_SLICE;
         end
     end
 
 
     // MANTISSA, A, HALF, RSQRT CALCULATION
-    int k_reg, shift_reg, shift_neg_reg;
+    int k_reg;
     int k, k_even, shift, shift_neg;
 
-    dword_t guess_reg;   // 1 cycle: matches the norm_shift_reg cycle that `a` picked up but mantissa/guess didn't
+    logic shift_sign, shift_sign_reg;
+    logic [SHW-1:0] shift_mag,  shift_mag_reg;
 
-    int norm_shift, norm_shift_neg;
-    int norm_shift_reg, norm_shift_neg_reg;
+    logic norm_sign, norm_sign_reg;
+    logic [SHW-1:0] norm_mag,   norm_mag_reg;
+
+    logic half_sign;
+    logic [SHW-1:0] half_mag;
+
+    logic [`LUTBITS:0] lut_idx, lut_idx_reg;
+    dword_t guess_reg;
+
+    int norm_shift, norm_shift_neg;   // comb only -- the registered form is norm_sign_reg/norm_mag_reg
 
     localparam int NORM_CONST        = (`DENOMFRAC - `SEEDFRAC);
     localparam int NORM_CONST_NEG_P1 = -NORM_CONST + 1;
 
     always_comb begin
-        k = msb_reg - `REF;
+        k = msb_abs_reg - `REF;
         parity = k_reg[0];
         k_even = {k_reg[`WORDBITS-1:1],1'b0};
 
-        shift = msb_reg - `LUTBITS;
-        shift_neg = `LUTBITS - msb_reg;
+        // shift and shift_neg stay independent (parallel adders, not chained)
+        shift     = msb_abs_reg - `LUTBITS;
+        shift_neg = `LUTBITS - msb_abs_reg;
+        shift_sign = shift[`WORDBITS-1];
+        shift_mag  = shift_sign ? shift_neg[SHW-1:0] : shift[SHW-1:0];
 
-        mantissa =  shift_reg[`WORDBITS-1]
-            ? `LUTBITS'((x_reg[1] << shift_neg_reg) & ((1 << `LUTBITS) - 1))
-            : `LUTBITS'((x_reg[1] >> shift_reg) & ((1 << `LUTBITS) - 1)) ;
+        mantissa =  shift_sign_reg
+            ? `LUTBITS'((x_reg[2] << shift_mag_reg) & ((1 << `LUTBITS) - 1))
+            : `LUTBITS'((x_reg[2] >> shift_mag_reg) & ((1 << `LUTBITS) - 1)) ;
+
+        lut_idx = {parity, mantissa};
 
         norm_shift     = NORM_CONST        + k_even;
         norm_shift_neg = NORM_CONST_NEG_P1 + (~k_even);   // computed independently of norm_shift, not derived from it
+        norm_sign = norm_shift[`WORDBITS-1];
+        norm_mag  = norm_sign ? norm_shift_neg[SHW-1:0] : norm_shift[SHW-1:0];
 
-        a = norm_shift_reg[`WORDBITS-1] ? (x_reg[2] << norm_shift_neg_reg) : (x_reg[2] >> norm_shift_reg); // TODO split into 2 cycles
+        a = norm_sign_reg ? (x_reg[3] << norm_mag_reg) : (x_reg[3] >> norm_mag_reg);
 
         half = k_even >>> 1;
         half_neg = -half;
 
+        half_sign = half[`WORDBITS-1];
+        half_mag  = half_sign ? half_neg[SHW-1:0] : half[SHW-1:0];
+
         guess_final = stage_out[ITERS-1];
-        rsqrt_out = (half_delay[ITERSCYCLES][`WORDBITS-1])
-            ? (guess_final << (half_neg_delay[ITERSCYCLES]))
-            : (guess_final >> half_delay[ITERSCYCLES]);
+        rsqrt_out = half_sign_delay[ITERSCYCLES]
+            ? (guess_final << half_mag_delay[ITERSCYCLES])
+            : (guess_final >> half_mag_delay[ITERSCYCLES]);
     end
 
 
@@ -130,41 +169,45 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
     always_ff @(posedge clk) begin
         if (rst) begin
             a_delay <= '{default: '0};
-            half_delay <= '{default: '0};
-            half_neg_delay <= '{default : '0};
+            half_sign_delay <= '{default: '0};
+            half_mag_delay <= '{default : '0};
             msb_reg <= 0;
+            msb_abs_reg <= 0;
             x_reg <= 0;
             inv_pwr3_reg <= 0;
             rsqrt_out_reg <= 0;
             k_reg <= 0;
-            shift_reg <= 0;
-            shift_neg_reg <= 0;
-            norm_shift_reg <= 0;
-            norm_shift_neg_reg <= 0;
+            shift_sign_reg <= 0;
+            shift_mag_reg <= 0;
+            norm_sign_reg <= 0;
+            norm_mag_reg <= 0;
+            lut_idx_reg <= 0;
             guess_reg <= 0;
 
         end else begin
             msb_reg <= msb;
-            x_reg <= {x_reg[1:0], x};
+            msb_abs_reg <= msb_abs;
+            x_reg <= {x_reg[X_DELAY-2:0], x};
             inv_pwr3_reg <= inv_pwr3;
             rsqrt_out_reg <= rsqrt_out;
             k_reg <= k;
-            shift_reg <= shift;
-            shift_neg_reg <= shift_neg;
-            norm_shift_reg <= norm_shift;
-            norm_shift_neg_reg <= norm_shift_neg;
-            guess_reg <= guess;
+            shift_sign_reg <= shift_sign;
+            shift_mag_reg <= shift_mag;
+            norm_sign_reg <= norm_sign;
+            norm_mag_reg <= norm_mag;
+            lut_idx_reg <= lut_idx;   // stage 1: 5-bit index in
+            guess_reg   <= guess;     // stage 2: 64-bit seed out
 
             a_delay[0]    <= a;
-            half_delay[0] <= half;
-            half_neg_delay[0] <= half_neg;
+            half_sign_delay[0] <= half_sign;
+            half_mag_delay[0]  <= half_mag;
             for (int i = 1; i < ITERSCYCLES; i++) begin
                 a_delay[i]    <= a_delay[i-1];
-                half_delay[i] <= half_delay[i-1];
-                half_neg_delay[i] <= half_neg_delay[i-1];
+                half_sign_delay[i] <= half_sign_delay[i-1];
+                half_mag_delay[i]  <= half_mag_delay[i-1];
             end
-            half_delay[ITERSCYCLES] <= half_delay[ITERSCYCLES-1];
-            half_neg_delay[ITERSCYCLES] <= half_neg_delay[ITERSCYCLES-1];
+            half_sign_delay[ITERSCYCLES] <= half_sign_delay[ITERSCYCLES-1];
+            half_mag_delay[ITERSCYCLES]  <= half_mag_delay[ITERSCYCLES-1];
         end
     end
 
@@ -174,10 +217,10 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
             dword_t y_in, a_in;
             if (i == 0) begin : head
                 assign y_in = guess_reg;   // LUT seed, delayed 1 cycle to match `a`
-                assign a_in = a;           // comb -- a_delay[0] is one register beyond this, tail taps assume that baseline
+                assign a_in = a_delay[0];      // a, registered
             end else begin : tail
                 assign y_in = stage_out[i-1];  // previous refined guess
-                assign a_in = a_delay[`RSQRTMULTLATENCY*i-1];  // a delayed to match (18 cyc/stage)
+                assign a_in = a_delay[`RSQRTMULTLATENCY*i];  // head 
             end
 
             rsqrt_newton_step rns (
@@ -192,8 +235,8 @@ module inv_pwr_3d2_unit #(parameter ITERS = 2, parameter LATENCY = 2) (
 
     // MODULE DECLARATIONS
     newton_lut lookup(
-        .mantissa(mantissa),
-        .parity(parity),
+        .mantissa(lut_idx_reg[`LUTBITS-1:0]),
+        .parity(lut_idx_reg[`LUTBITS]),
 
         .val(guess)
     );

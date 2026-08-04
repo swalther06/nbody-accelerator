@@ -88,7 +88,7 @@ module accelerator_tb;
         // dt=0.01 matches figure8's suggested dt in modeling/orbits.csv
         // (re-check this if simulating a config with a different dt).
         dt = 32'h000028F6;
-        tend = 32'h00100000;
+        tend = 32'h00F00000;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");
@@ -108,7 +108,7 @@ module accelerator_tb;
                 @(posedge clk);
                 if (state_counter != last_counter) begin
                     last_counter = state_counter;
-                    if (state_counter % 5 == 0) begin
+                    if (state_counter % 50 == 0) begin
                         $display("State %0d complete on cycle %0d", state_counter, cycle_counter);
                     end
                     write_state_csv(last_counter, st_out);
