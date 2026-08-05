@@ -1,10 +1,15 @@
-.PHONY: help sync fm blm render lut st_init sim mult_tb accel_unit_tb synth clean syn_search nuke
+.PHONY: help sync fm blm refsim sw_metrics hw_metrics compare compare_only render lut st_init sim mult_tb accel_unit_tb synth clean syn_search nuke
 
 help:
 	@echo "Available targets:"
 	@echo "  sync    - install/sync dependencies"
 	@echo "  fm      - run the float64 model (ORBIT=<config>)"
 	@echo "  blm     - run the bit-level model (ORBIT=<config>)"
+	@echo "  refsim  - run the double-precision software baseline (ORBIT=<config>, ARGS=..., REFFLAGS=...)"
+	@echo "  compare - run RTL + software and print a side-by-side comparison"
+	@echo "            (N=<bodies>, STEPS=<n> for a faster run, ORBIT=..., PERIOD=<ns>)"
+	@echo "            logs land in sim_log/hardware.log and sim_log/software.log"
+	@echo "  compare_only - re-print the comparison from existing sim_log/ files"
 	@echo "  render  - render simulation output"
 	@echo "  lut     - generate the Newton LUT header"
 	@echo "  st_init - generate simulation/st_init.mem (ORBIT=<config>)"
@@ -29,6 +34,50 @@ blm:
 	gcc modeling/bitlevel_model.c modeling/orbits.c -Wall -Werror -o modeling/bitlevel_model.exe -lm
 	./modeling/bitlevel_model.exe $(ORBIT)
 
+REFFLAGS ?= -O3
+refsim: sw_metrics
+
+# --- hardware vs software comparison ---------------------------------------
+# Both runs write to sim_log/ (hardware.log, software.log), each ending in a
+# machine-readable [metrics] block that modeling/compare.py parses. PERIOD is
+# the synthesized clock in ns -- the 10ns testbench clock is arbitrary, so
+# ns/step and ns/pair are meaningless without it.
+PERIOD ?= $(shell cat synthesis/clock 2>/dev/null || echo 2.5)
+
+# N=<count> overrides the body count for BOTH sides of the comparison. It has to
+# reach every compile that sees definitions.h/defs.svh -- including gen_st_init,
+# since st_init.mem's field layout is N-dependent and a mismatch between the
+# generator and the testbench corrupts the initial state silently. Unset leaves
+# each header's own default alone.
+NDEF_C  := $(if $(N),-DN=$(N),)
+NDEF_SV := $(if $(N),+define+N=$(N),)
+
+# STEPS=<n> sets the timestep count on BOTH sides (default 1500, i.e. the RTL's
+# tend=15.0 at dt=0.01). This is the knob for a faster run: cycles/step is a
+# steady-state figure and does not change with it, but energy drift accumulates
+# over time, so keep a long run when validating accuracy rather than speed.
+STEPSDEF_C  := $(if $(STEPS),-DREF_STEPS=$(STEPS),)
+STEPS_ARG   := $(if $(STEPS),+steps=$(STEPS),)
+
+sw_metrics:
+	mkdir -p sim_log
+	gcc modeling/reference_sim.c modeling/orbits.c -Wall -Werror $(NDEF_C) $(STEPSDEF_C) $(REFFLAGS) -o modeling/reference_sim.exe -lm
+	./modeling/reference_sim.exe $(ORBIT) $(ARGS)
+
+# synchronous RTL run (unlike 'sim', which detaches into tmux) so it can be
+# sequenced ahead of the comparison
+hw_metrics: st_init
+	mkdir -p sim_log output
+	cd simulation && vcs -sverilog -full64 -timescale=1ns/1ps ../rtl/*.sv accelerator_tb.sv +incdir+../rtl $(NDEF_SV) $(DW_ARGS) -top accelerator_tb -o simv_metrics
+	cd simulation && ./simv_metrics +period=$(PERIOD) +orbit=$(if $(ORBIT),$(ORBIT),figure8) $(STEPS_ARG)
+
+compare: hw_metrics sw_metrics
+	@uv run python modeling/compare.py
+
+# re-run just the comparison against whatever is already in sim_log/
+compare_only:
+	@uv run python modeling/compare.py
+
 render:
 	uv run python modeling/render.py
 
@@ -38,7 +87,7 @@ lut:
 
 st_init:
 	mkdir -p simulation
-	gcc modeling/gen_st_init.c modeling/orbits.c -o modeling/gen_st_init.exe -lm
+	gcc modeling/gen_st_init.c modeling/orbits.c $(NDEF_C) -o modeling/gen_st_init.exe -lm
 	./modeling/gen_st_init.exe $(ORBIT)
 
 # VCD=1 (or t/true/yes) opts into the waveform dump; off by default since a
