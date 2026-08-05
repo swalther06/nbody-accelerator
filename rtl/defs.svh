@@ -11,8 +11,14 @@ typedef logic signed [`WORDBITS-1:0] word_t;
 typedef logic signed [`DWORDBITS-1:0] dword_t;
 typedef logic signed [`QWORDBITS-1:0] qword_t;
 
-// NUMBER OF BODIES 
-`define N 10
+// NUMBER OF BODIES
+// Guarded so the build can override it (vcs +define+N=...). This MUST stay in
+// sync with modeling/definitions.h's N -- st_init.mem is written with `N values
+// per field and read back the same way, so a mismatch silently scrambles every
+// field past rx rather than failing loudly. 'make compare N=<n>' sets both.
+`ifndef N
+`define N 3
+`endif
 `define NBITS $clog2(`N)
 
 // ACCELERATION SOFTENING - prevents massive accelerations from occuring due to close proximity
@@ -20,10 +26,10 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 
 // PIPE PARALLELIZATION - number of bodies processed at once
-`define NUMPIPES 4
+`define NUMPIPES 10
 
 // LANE PARALLELIZATION - number of accelerations calculated at once
-`define NUMLANES 4
+`define NUMLANES 1
 
 // PADDING FOR N
 `define N_PAD1 (((`N + `NUMPIPES - 1) / `NUMPIPES) * `NUMPIPES)
