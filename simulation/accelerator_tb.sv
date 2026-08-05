@@ -34,6 +34,45 @@ module accelerator_tb;
 
     int csv_file;
 
+    // --- metrics, mirroring modeling/reference_sim.c so the two can be read
+    // --- side by side. One "step" means the same thing in both: advance all N
+    // --- bodies by dt (one state_counter increment here).
+    int    metrics_file;
+    real   clk_period_ns;              // synthesized period; +period=<ns> overrides
+    string orbit_name;                 // label only; +orbit=<name> overrides
+    int    step_cycles_min, step_cycles_max;
+    longint step_cycles_sum;
+    int    step_cycles_n;
+    int    prev_state_cycle;
+    real   energy_first, energy_last;
+    int    num_steps_arg;              // +steps=<n> overrides tend
+
+    // Total energy in real units, same formula as reference_sim.h's
+    // total_energy() and bitlevel_model.c: G=1, softening eps^2 = 1e-6.
+    function real total_energy(State st);
+        real ke, pe, vx, vy, vz, mi, mj, dx, dy, dz;
+        ke = 0.0;
+        pe = 0.0;
+        for (int i = 0; i < `N; i++) begin
+            vx = real'(st.v[i][0]) / real'(`FRACSCALE);
+            vy = real'(st.v[i][1]) / real'(`FRACSCALE);
+            vz = real'(st.v[i][2]) / real'(`FRACSCALE);
+            mi = real'(st.m[i])    / real'(`FRACSCALE);
+            ke += 0.5 * mi * (vx*vx + vy*vy + vz*vz);
+        end
+        for (int i = 0; i < `N; i++) begin
+            for (int j = i + 1; j < `N; j++) begin
+                dx = (real'(st.r[j][0]) - real'(st.r[i][0])) / real'(`FRACSCALE);
+                dy = (real'(st.r[j][1]) - real'(st.r[i][1])) / real'(`FRACSCALE);
+                dz = (real'(st.r[j][2]) - real'(st.r[i][2])) / real'(`FRACSCALE);
+                mi = real'(st.m[i]) / real'(`FRACSCALE);
+                mj = real'(st.m[j]) / real'(`FRACSCALE);
+                pe -= mi * mj / $sqrt(dx*dx + dy*dy + dz*dz + 1e-6);
+            end
+        end
+        return ke + pe;
+    endfunction
+
     // one row per particle, dequantized to real values; matches the
     // step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m layout written by
     // modeling/export.py and modeling/bitlevel_model.c's write_states_csv
@@ -56,6 +95,94 @@ module accelerator_tb;
         end
     endfunction
 
+    // Writes the same metric set as modeling/reference_sim.c, to stdout and to
+    // output/accelerator_metrics.log, so hardware and software numbers can be
+    // compared line for line.
+    task report_metrics();
+        real mean_cycles, ns_step, ns_pair, cycles_pair, drift;
+        real pairs_useful, slots_evaluated, occupancy;
+
+        // N*(N-1) is the useful ordered-pair count, matching reference_sim's
+        // pairs_full. The accelerator actually streams N*N_PAD j-slots, so the
+        // ratio shows how much of the array is doing real work.
+        pairs_useful    = real'(`N) * real'(`N - 1);
+        slots_evaluated = real'(`N) * real'(`N_PAD);
+        occupancy       = 100.0 * pairs_useful / slots_evaluated;
+
+        mean_cycles = (step_cycles_n > 0)
+                    ? real'(step_cycles_sum) / real'(step_cycles_n) : 0.0;
+        ns_step     = mean_cycles * clk_period_ns;
+        ns_pair     = ns_step / pairs_useful;
+        cycles_pair = mean_cycles / pairs_useful;
+        drift       = 100.0 * (energy_last - energy_first) / (energy_first < 0 ? -energy_first : energy_first);
+
+        metrics_file = $fopen("../sim_log/hardware.log", "w");
+        if (!metrics_file)
+            $display("WARNING: could not open ../sim_log/hardware.log (run 'make hw_metrics', which creates the dir)");
+
+        $display("");
+        $display("=== accelerator (RTL simulation) ===");
+        $display("orbit=%0s  N=%0d  steps=%0d  dt=%.6g  clk=%.3f ns  NUMPIPES=%0d  NUMLANES=%0d",
+                 orbit_name, `N, state_counter, real'(dt)/real'(`FRACSCALE),
+                 clk_period_ns, `NUMPIPES, `NUMLANES);
+        $display("");
+        $display("Initial energy: %.6f", energy_first);
+        $display("Final energy:   %.6f", energy_last);
+        $display("Relative drift: %.3f%%", drift);
+        $display("");
+        $display("cycles/step: mean %.2f  min %0d  max %0d   (over %0d steady-state steps)",
+                 mean_cycles, step_cycles_min, step_cycles_max, step_cycles_n);
+        $display("pair slots streamed %.0f, of which useful %.0f (%.1f%% occupancy)",
+                 slots_evaluated, pairs_useful, occupancy);
+        $display("");
+        $display("%-12s %12s %13s %11s %14s %12s",
+                 "kernel", "ns/step", "pairs/step", "ns/pair", "pairs/sec", "cycles/pair");
+        $display("%-12s %12.1f %13.0f %11.3f %14.3g %12.3f",
+                 "accelerator", ns_step, pairs_useful, ns_pair, 1e9 / ns_pair, cycles_pair);
+        $display("");
+        $display("clk period is from +period=<ns> (synthesis/clock), NOT the 10ns testbench clock.");
+
+        if (metrics_file) begin
+            $fwrite(metrics_file, "=== accelerator (RTL simulation) ===\n");
+            $fwrite(metrics_file, "orbit=%0s  N=%0d  steps=%0d  dt=%.6g  clk=%.3f ns  NUMPIPES=%0d  NUMLANES=%0d\n\n",
+                    orbit_name, `N, state_counter, real'(dt)/real'(`FRACSCALE),
+                    clk_period_ns, `NUMPIPES, `NUMLANES);
+            $fwrite(metrics_file, "Initial energy: %.6f\n", energy_first);
+            $fwrite(metrics_file, "Final energy:   %.6f\n", energy_last);
+            $fwrite(metrics_file, "Relative drift: %.3f%%\n\n", drift);
+            $fwrite(metrics_file, "cycles/step: mean %.2f  min %0d  max %0d   (over %0d steady-state steps)\n",
+                    mean_cycles, step_cycles_min, step_cycles_max, step_cycles_n);
+            $fwrite(metrics_file, "pair slots streamed %.0f, of which useful %.0f (%.1f%% occupancy)\n\n",
+                    slots_evaluated, pairs_useful, occupancy);
+            $fwrite(metrics_file, "%-12s %12s %13s %11s %14s %12s\n",
+                    "kernel", "ns/step", "pairs/step", "ns/pair", "pairs/sec", "cycles/pair");
+            $fwrite(metrics_file, "%-12s %12.1f %13.0f %11.3f %14.3g %12.3f\n",
+                    "accelerator", ns_step, pairs_useful, ns_pair, 1e9 / ns_pair, cycles_pair);
+            $fwrite(metrics_file, "\ntotal cycles %0d over %0d states\n", cycle_counter, state_counter);
+
+            // machine-readable block for modeling/compare.py -- parsed as
+            // key=value so the comparison never depends on the prose above
+            $fwrite(metrics_file, "\n[metrics]\n");
+            $fwrite(metrics_file, "impl=hardware\n");
+            $fwrite(metrics_file, "orbit=%0s\n", orbit_name);
+            $fwrite(metrics_file, "n=%0d\n", `N);
+            $fwrite(metrics_file, "steps=%0d\n", state_counter);
+            $fwrite(metrics_file, "numpipes=%0d\n", `NUMPIPES);
+            $fwrite(metrics_file, "numlanes=%0d\n", `NUMLANES);
+            $fwrite(metrics_file, "clk_period_ns=%.6f\n", clk_period_ns);
+            $fwrite(metrics_file, "cycles_per_step=%.6f\n", mean_cycles);
+            $fwrite(metrics_file, "cycles_per_pair=%.6f\n", cycles_pair);
+            $fwrite(metrics_file, "pairs_per_step=%.0f\n", pairs_useful);
+            $fwrite(metrics_file, "slots_per_step=%.0f\n", slots_evaluated);
+            $fwrite(metrics_file, "occupancy_pct=%.3f\n", occupancy);
+            $fwrite(metrics_file, "ns_per_step=%.6f\n", ns_step);
+            $fwrite(metrics_file, "ns_per_pair=%.6f\n", ns_pair);
+            $fwrite(metrics_file, "drift_pct=%.6f\n", drift);
+            $fclose(metrics_file);
+            $display("wrote ../sim_log/hardware.log");
+        end
+    endtask
+
     initial begin
         // off by default -- +VCD (make sim VCD=1) opts in: a full-hierarchy
         // dump over a long run (e.g. solar_system's ~80000 steps) can reach
@@ -71,6 +198,19 @@ module accelerator_tb;
         restart = 0;
         dt = 0;
         tend = 0;
+
+        // metric accumulators. The 10ns testbench clock is arbitrary, so the
+        // real synthesized period comes in via +period=<ns> (see synthesis/clock);
+        // ns/step and ns/pair are meaningless without it.
+        clk_period_ns   = 2.5;
+        orbit_name      = "unknown";
+        void'($value$plusargs("period=%f", clk_period_ns));
+        void'($value$plusargs("orbit=%s", orbit_name));
+        step_cycles_min = 32'h7FFFFFFF;
+        step_cycles_max = 0;
+        step_cycles_sum = 0;
+        step_cycles_n   = 0;
+        prev_state_cycle = 0;
 
         // load the orbit config baked into st_init.mem (make st_init ORBIT=<config>)
         $readmemh("st_init.mem", st_init_mem);
@@ -88,7 +228,14 @@ module accelerator_tb;
         // dt=0.01 matches figure8's suggested dt in modeling/orbits.csv
         // (re-check this if simulating a config with a different dt).
         dt = 32'h000028F6;
+        // tend=0x00F00000 is 15.0 in Q20, which at dt=0.01 is 1500 steps.
+        // +steps=<n> overrides it: the accelerator derives its step count as
+        // (tend+dt-1)/dt, so tend = n*dt lands on exactly n steps. Shrinking
+        // this is the main knob for a faster run -- cycles/step is steady state
+        // and unaffected, though energy drift needs a long run to be meaningful.
         tend = 32'h00F00000;
+        if ($value$plusargs("steps=%d", num_steps_arg))
+            tend = num_steps_arg * dt;
 
         csv_file = $fopen("../output/states.csv", "w");
         $fwrite(csv_file, "step,t,particle,rx,ry,rz,vx,vy,vz,ax,ay,az,m\n");
@@ -100,13 +247,27 @@ module accelerator_tb;
 
         @(posedge clk);  // let cur_state <= st_init land before reading st_out
         write_state_csv(0, st_out);
+        energy_first = total_energy(st_out);
 
         begin
             int last_counter;
+            int delta;
             last_counter = 0;
             while (!done) begin
                 @(posedge clk);
                 if (state_counter != last_counter) begin
+                    // cycles this state took; the very first delta still carries
+                    // the post-restart pipeline fill, so it is excluded from the
+                    // steady-state statistics below
+                    delta = cycle_counter - prev_state_cycle;
+                    prev_state_cycle = cycle_counter;
+                    if (last_counter != 0) begin
+                        step_cycles_sum += delta;
+                        step_cycles_n   += 1;
+                        if (delta < step_cycles_min) step_cycles_min = delta;
+                        if (delta > step_cycles_max) step_cycles_max = delta;
+                    end
+
                     last_counter = state_counter;
                     if (state_counter % 50 == 0) begin
                         $display("State %0d complete on cycle %0d", state_counter, cycle_counter);
@@ -118,7 +279,9 @@ module accelerator_tb;
         end
 
         $fclose(csv_file);
+        energy_last = total_energy(st_out);
         $display("Simulation finished on state %0d and at cycle %0d", state_counter, cycle_counter);
+        report_metrics();
         $finish;
     end
 
