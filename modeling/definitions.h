@@ -7,7 +7,13 @@
 
 
 // N-bodies
-#define N 10
+// Guarded so the build can override it (gcc -DN=...). This MUST stay in sync
+// with rtl/defs.svh's `N -- st_init.mem is written with N values per field and
+// read back the same way, so a mismatch silently scrambles every field past rx
+// rather than failing loudly. 'make compare N=<n>' sets both.
+#ifndef N
+#define N 3
+#endif
 
 #define WIDTH 4
 
