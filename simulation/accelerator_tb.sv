@@ -14,6 +14,13 @@ module accelerator_tb;
     word_t state_counter;
     int cycle_counter;
 
+    // The body count now lives here, not in the accelerator: the tile counts are
+    // precomputed and passed in. j_tiles covers the ACTIVE bodies (ceil(N/LANES))
+    // rather than the padded capacity -- slots past N carry m=0 and contribute
+    // exactly zero, so streaming them was work with no effect on the result.
+    localparam I_TILES = (`N + `NUMPIPES - 1) / `NUMPIPES;
+    localparam J_TILES = (`N + `NUMLANES - 1) / `NUMLANES;
+
     accelerator dut (
         .clk(clk),
         .rst(rst),
@@ -21,6 +28,8 @@ module accelerator_tb;
         .st_init(st_init),
         .dt(dt),
         .tend(tend),
+        .i_tiles(word_t'(I_TILES)),
+        .j_tiles(word_t'(J_TILES)),
         .st_out(st_out),
         .done(done),
         .state_counter(state_counter)
@@ -103,10 +112,14 @@ module accelerator_tb;
         real pairs_useful, slots_evaluated, occupancy;
 
         // N*(N-1) is the useful ordered-pair count, matching reference_sim's
-        // pairs_full. The accelerator actually streams N*N_PAD j-slots, so the
-        // ratio shows how much of the array is doing real work.
+        // pairs_full. Slots evaluated follows the actual tiling: every one of
+        // the (i_tiles * NUMPIPES) body slots streams (j_tiles * NUMLANES)
+        // partner slots, whether or not those indices hold a real body. The old
+        // N*N_PAD form happens to agree whenever the padding lines up, but it
+        // is not what the hardware does -- e.g. N=10, PIPES=3, LANES=4 gives
+        // N*N_PAD=120 against an actual 12*12=144.
         pairs_useful    = real'(`N) * real'(`N - 1);
-        slots_evaluated = real'(`N) * real'(`N_PAD);
+        slots_evaluated = real'(I_TILES * `NUMPIPES) * real'(J_TILES * `NUMLANES);
         occupancy       = 100.0 * pairs_useful / slots_evaluated;
 
         mean_cycles = (step_cycles_n > 0)

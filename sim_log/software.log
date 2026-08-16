@@ -1,24 +1,24 @@
 === software reference: double precision, O(N^2) ===
-orbit=figure8  N=5  steps=1000  dt=0.01  reps=5
+orbit=figure8  N=10  steps=1000  dt=0.01  reps=5
 
 Initial energy: -1.287141
 Final energy:   -1.287217
 Relative drift: -0.006%
 
 kernel            ns/step    pairs/step     ns/pair      pairs/sec
-full_N^2            108.4            20       5.422       1.84e+08
-symmetric            95.6            10       9.557       1.05e+08
+full_N^2            458.1            90       5.090       1.96e+08
+symmetric           345.8            45       7.685        1.3e+08
 
 [metrics]
 impl=software
 orbit=figure8
-n=5
+n=10
 steps=1000
 reps=5
-pairs_per_step=20
-ns_per_step=108.432025
-ns_per_pair=5.421601
-sym_pairs_per_step=10
-sym_ns_per_step=95.566997
-sym_ns_per_pair=9.556700
+pairs_per_step=90
+ns_per_step=458.105002
+ns_per_pair=5.090056
+sym_pairs_per_step=45
+sym_ns_per_step=345.806824
+sym_ns_per_pair=7.684596
 drift_pct=-0.005867

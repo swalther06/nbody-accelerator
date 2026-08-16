@@ -1,31 +1,31 @@
 === accelerator (RTL simulation) ===
-orbit=figure8  N=5  steps=1000  dt=0.0100002  clk=2.500 ns  NUMPIPES=10  NUMLANES=1
+orbit=unknown  N=3  steps=1500  dt=0.0100002  clk=2.500 ns  NUMPIPES=1  NUMLANES=1
 
 Initial energy: -1.287141
-Final energy:   -1.287238
-Relative drift: -0.008%
+Final energy:   -1.287153
+Relative drift: -0.001%
 
-cycles/step: mean 80.00  min 80  max 80   (over 999 steady-state steps)
-pair slots streamed 50, of which useful 20 (40.0% occupancy)
+cycles/step: mean 217.00  min 217  max 217   (over 1499 steady-state steps)
+pair slots streamed 9, of which useful 6 (66.7% occupancy)
 
 kernel            ns/step    pairs/step     ns/pair      pairs/sec  cycles/pair
-accelerator         200.0            20      10.000          1e+08        4.000
+accelerator         542.5             6      90.417       1.11e+07       36.167
 
-total cycles 80000 over 1000 states
+total cycles 325500 over 1500 states
 
 [metrics]
 impl=hardware
-orbit=figure8
-n=5
-steps=1000
-numpipes=10
+orbit=unknown
+n=3
+steps=1500
+numpipes=1
 numlanes=1
 clk_period_ns=2.500000
-cycles_per_step=80.000000
-cycles_per_pair=4.000000
-pairs_per_step=20
-slots_per_step=50
-occupancy_pct=40.000
-ns_per_step=200.000000
-ns_per_pair=10.000000
-drift_pct=-0.007523
+cycles_per_step=217.000000
+cycles_per_pair=36.166667
+pairs_per_step=6
+slots_per_step=9
+occupancy_pct=66.667
+ns_per_step=542.500000
+ns_per_pair=90.416667
+drift_pct=-0.000878

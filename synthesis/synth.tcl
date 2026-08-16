@@ -39,10 +39,86 @@ set clock_name clk
 #                 also search the design currently in memory.
 # lec25dscc25_TT = TSMC 250nm, typical process corner, 25C, nominal voltage.
 # =============================================================================
-set primary_corner lec25dscc25_TT
-#set primary_corner saed32rvt_tt1p05v25c
+# A technology is four library-specific things: where the .db lives, its
+# library name, a wire load model, and a cell to model input drive with. Cell
+# names are NOT portable between libraries (dffacs1 exists only in the 250nm
+# lib), so each preset carries its own. Select with:
+#     dc_shell -x "set script_dir ..; set tech n16" -f ../synth.tcl
+# or  make synth TECH=n16
+if {![info exists tech]} { set tech lec25 }
 
-set target_library [list ${primary_corner}.db]
+switch -- $tech {
+    lec25 {
+        # TSMC 250nm educational library, typical corner, 25C, nominal voltage.
+        set lib_dir      "/usr/caen/misc/class/eecs470/lib/synopsys/"
+        set lib_file     "lec25dscc25_TT"
+        set lib_name     "lec25dscc25_TT"
+        set wire_load    "tsmcwire"
+        set drive_cell   "dffacs1"
+        set drive_pin    "Q"
+    }
+    n16 {
+        # TSMC 16nm ADFP standard cells, typical 0.8V 25C. NOTE: this is a
+        # foundry PDK under the terms in the kit's
+        # N16ADFP_TERMS_AND_CONDITIONS pdf -- check that your use is covered
+        # before publishing area or timing derived from it.
+        set lib_dir      "/usr/caen/misc/class/tsmc16adfp/tsmc16adfp/Collaterals/IP/stdcell/N16ADFP_StdCell/NLDM/"
+        set lib_file     "N16ADFP_StdCelltt0p8v25c"
+        set lib_name     "N16ADFP_StdCelltt0p8v25c"
+        set wire_load    "ZeroWireload"
+        set drive_cell   "BUFFD1BWP16P90"
+        set drive_pin    "Z"
+    }
+    freepdk45 {
+        # NCSU FreePDK45 1.4 / OSU gscl45nm standard cells (Apache-2.0, so
+        # results are publishable without qualification). Nominal 1.1V, 27C.
+        # The kit ships gscl45nm.db already compiled -- no lc_shell step.
+        # TECH_HOME defaults to ~/tech and can be overridden.
+        #
+        # Only 31 cells, and NO wire load models in the .lib (hence the empty
+        # wire_load below): expect worse QoR and optimistic pre-layout timing
+        # relative to the 250nm library, which is the price of an open kit.
+        if {[info exists env(TECH_HOME)]} {
+            set tech_home $env(TECH_HOME)
+        } else {
+            set tech_home "$env(HOME)/tech"
+        }
+        set lib_dir      "$tech_home/FreePDK45/osu_soc/lib/files/"
+        set lib_file     "gscl45nm"
+        set lib_name     "gscl45nm"
+        set wire_load    ""
+        set drive_cell   "BUFX2"
+        set drive_pin    "Y"
+    }
+    nangate45 {
+        # FreePDK45 + NanGate Open Cell Library, from the tech/freepdk-45nm
+        # submodule (the mflowgen ADK). PREFER THIS over tech=freepdk45: the
+        # OSU gscl45nm kit's flip-flop setup tables carry 6.2ns/5.125ns
+        # outliers among 0.05-0.3ns neighbours, which DC extrapolates into a
+        # ~110ns setup requirement and a meaningless timing report. NanGate's
+        # characterization is clean, and this kit also ships wire load models
+        # and bc/wc corners. Nominal 1.1V, 25C.
+        set lib_dir      "$script_dir/../tech/freepdk-45nm/"
+        set lib_file     "stdcells"
+        set lib_name     "NangateOpenCellLibrary"
+        set wire_load    "5K_hvratio_1_1"
+        set drive_cell   "BUF_X1"
+        set drive_pin    "Z"
+    }
+    default {
+        error "unknown tech '$tech' -- expected one of: lec25 n16 freepdk45 nangate45"
+    }
+}
+
+puts "synth.tcl: tech=$tech  library=$lib_name"
+puts "synth.tcl: lib_dir=$lib_dir"
+
+# lib_file is the .db FILENAME, lib_name is the library name INSIDE it. They
+# match for most kits, but the mflowgen ADK ships stdcells.db containing a
+# library called NangateOpenCellLibrary -- target_library wants the former,
+# set_wire_load_model -lib wants the latter.
+set primary_corner $lib_name
+set target_library [list ${lib_file}.db]
 set link_library "* $target_library"
 
 
@@ -51,7 +127,7 @@ set link_library "* $target_library"
 # Directories DC checks when resolving `include files and .db library names.
 # "$script_dir/../rtl/" must be present so `include "defs.svh" resolves.
 # =============================================================================
-set search_path [list "./" $script_dir $script_dir/../rtl/ "/usr/caen/misc/class/eecs470/lib/synopsys/"]
+set search_path [list "./" $script_dir $script_dir/../rtl/ $lib_dir]
 
 
 # =============================================================================
@@ -70,7 +146,19 @@ set_app_var hdlin_precompile_dir "."
 set_svf "default.svf"
 set hdlin_ff_always_sync_set_reset "true"
 
-analyze -f sverilog $SOURCES
+# rtl_defines lets the build override defs.svh's guarded macros (N, NUMPIPES,
+# NUMLANES) without editing the file, e.g.
+#     dc_shell -x "set script_dir ..; set rtl_defines {N=20 NUMPIPES=10}" -f ../synth.tcl
+# Without this, dc_shell only ever sees whatever is literally in defs.svh, so
+# area/timing could silently describe a different design than the VCS benchmark
+# (which gets the same values via +define+).
+if {![info exists rtl_defines]} { set rtl_defines {} }
+if {[llength $rtl_defines] > 0} {
+    puts "synth.tcl: overriding RTL macros with: $rtl_defines"
+    analyze -f sverilog -define $rtl_defines $SOURCES
+} else {
+    analyze -f sverilog $SOURCES
+}
 elaborate ${design_name}
 current_design ${design_name}
 
@@ -86,8 +174,14 @@ current_design ${design_name}
 set_app_var compile_top_all_paths "false"
 set_app_var auto_wire_load_selection "false"
 
-set_wire_load_model -name tsmcwire -lib lec25dscc25_TT ${design_name}
-set_wire_load_mode top
+# Not every library ships wire load models (modern PDKs expect real parasitics
+# from place-and-route instead), so skip the call when the preset leaves it empty.
+if {$wire_load ne ""} {
+    set_wire_load_model -name $wire_load -lib $lib_name ${design_name}
+    set_wire_load_mode top
+} else {
+    puts "synth.tcl: no wire load model for tech=$tech (pre-layout estimates will be optimistic)"
+}
 set_fix_multiple_port_nets -outputs -buffer_constants
 
 
@@ -96,7 +190,7 @@ set_fix_multiple_port_nets -outputs -buffer_constants
 # Tells DC how strong the signals driving the inputs are so it can accurately
 # model input transition times. "dffacs1 Q" = single-strength DFF output.
 # =============================================================================
-set_driving_cell -lib_cell dffacs1 -pin Q [all_inputs]
+set_driving_cell -lib_cell $drive_cell -pin $drive_pin [all_inputs]
 
 
 # =============================================================================
@@ -118,7 +212,7 @@ set_fix_hold $clock_name
 # -area_effort none: skip the post-compile area-reduction pass; change to
 #                    "high" if area matters once timing has closed.
 # =============================================================================
-compile -map_effort high -area_effort none
+compile -map_effort high -area_effort high
 
 # =============================================================================
 # OUTPUTS

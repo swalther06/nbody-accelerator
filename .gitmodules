@@ -1,0 +1,6 @@
+[submodule "tech/freepdk-45nm"]
+	path = tech/freepdk-45nm
+	url = https://github.com/mflowgen/freepdk-45nm.git
+[submodule "tech/mflowgen"]
+	path = tech/mflowgen
+	url = https://github.com/mflowgen/mflowgen.git

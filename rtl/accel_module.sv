@@ -1,18 +1,18 @@
 `include "defs.svh"
 
-module accel_module(
+module accel_module #(parameter NUMLANES = `NUMLANES) (
     input clk,
     input rst,
     input logic restart,
     input word_t [2:0] r_new [`N_PAD-1:0],
     input word_t m [`N_PAD-1:0],
     input [$clog2(`N_PAD)-1:0] p_i,
+    input word_t j_tiles,
 
     output word_t [2:0] a_out,
     output logic acc_valid
 );
 
-    localparam num_cycles = (`N_PAD + `NUMLANES - 1)/`NUMLANES;
     localparam ITERS = 2;
 
     word_t [2:0] a_reg;
@@ -26,9 +26,9 @@ module accel_module(
 
     genvar i;
 
-    word_t [2:0] a_wire [`NUMLANES-1:0];
+    word_t [2:0] a_wire [NUMLANES-1:0];
 
-    logic [`NUMLANES-1:0] au_valid;
+    logic [NUMLANES-1:0] au_valid;
 
     // au_valid has to be delayed by exactly the accumulator's latency so the
     // accumulate below fires on the cycle a_sum is actually valid. That depth
@@ -36,16 +36,16 @@ module accel_module(
     // from `ACC_LATENCY instead of hardcoding it. VALID_W floors the vector at
     // 2 bits purely to keep the [VALID_W-2:0] part-select below legal when the
     // latency is 1; the tap is always at ACC_LATENCY-1.
-    localparam ACC_LATENCY = `ACC_LATENCY(`NUMLANES);
+    localparam ACC_LATENCY = `ACC_LATENCY(NUMLANES);
     localparam VALID_W = (ACC_LATENCY < 2) ? 2 : ACC_LATENCY;
 
-    logic [VALID_W-1:0] au_valid_reg [`NUMLANES-1:0];
+    logic [VALID_W-1:0] au_valid_reg [NUMLANES-1:0];
     logic done_accumulating;
 
     // rewiring to satisfy systemverilog
-    word_t a_wire_t [2:0][`NUMLANES-1:0];
+    word_t a_wire_t [2:0][NUMLANES-1:0];
     always_comb begin
-        for (int k = 0; k < `NUMLANES; k++) begin
+        for (int k = 0; k < NUMLANES; k++) begin
             for (int d = 0; d < 3; d++) begin
                 a_wire_t[d][k] = a_wire[k][d];
             end
@@ -54,7 +54,7 @@ module accel_module(
 
     // 2 cycle latency here
     word_t [2:0] a_sum;
-    accumulator_piplined #(.WIDTH(`WORDBITS), .NUM_INPS(`NUMLANES)) accel_accumulator [2:0] (
+    accumulator_piplined #(.WIDTH(`WORDBITS), .NUM_INPS(NUMLANES)) accel_accumulator [2:0] (
         .clk,
         .rst,
         .inp(a_wire_t),
@@ -64,15 +64,15 @@ module accel_module(
     // tracks in_ctr combinationally (a module-scope declaration assignment
     // would only initialize once at time 0, not follow in_ctr)
     int jump;
-    always_comb jump = in_ctr*`NUMLANES;
+    always_comb jump = in_ctr*NUMLANES;
 
     always_ff @(posedge clk) begin
         if (rst | restart) in_ctr <= 0;
-        else in_ctr <= (in_ctr == num_cycles - 1) ? 0 : in_ctr + 1;
+        else in_ctr <= (in_ctr == j_tiles - 1) ? 0 : in_ctr + 1;
     end
 
     generate
-        for (i = 0; i < `NUMLANES; i++) begin
+        for (i = 0; i < NUMLANES; i++) begin
             accel_unit #(.ITERS(ITERS)) au (
                 .clk,
                 .rst,
@@ -99,11 +99,11 @@ module accel_module(
                 end
                 cycle_ctr <= cycle_ctr + 1;
 
-                if (cycle_ctr == num_cycles - 1) begin
+                if (cycle_ctr == j_tiles - 1) begin
                     done_accumulating <= 1;
                 end
             end
-            for (int lane = 0; lane < `NUMLANES; lane++) begin
+            for (int lane = 0; lane < NUMLANES; lane++) begin
                 au_valid_reg[lane] <= {au_valid_reg[lane][VALID_W-2:0], au_valid[lane]};
             end
         end

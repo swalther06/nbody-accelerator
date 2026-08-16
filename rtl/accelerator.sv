@@ -1,6 +1,9 @@
 `include "defs.svh"
 
-module accelerator(
+module accelerator #(
+    parameter NUMPIPES = `NUMPIPES,
+    parameter NUMLANES = `NUMLANES
+) (
     input clk,
     input rst,
 
@@ -9,13 +12,29 @@ module accelerator(
 
     input word_t dt,
     input word_t tend,
+    input word_t i_tiles,
+    input word_t j_tiles,
 
     output State st_out,
     output logic done,
     output word_t state_counter
 );
 
-    localparam num_cycles = (`N + `NUMPIPES - 1)/`NUMPIPES;
+    // tile counts latched at restart; num_cycles used to be a localparam
+    // derived from `N, and is now whatever the host asked for
+    word_t i_tiles_r, j_tiles_r;
+    word_t i_tiles_rm1;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            i_tiles_r <= 1;
+            j_tiles_r <= 1;
+            i_tiles_rm1 <= 0;
+        end else if (restart) begin
+            i_tiles_r <= (i_tiles < 1) ? 1 : i_tiles;
+            j_tiles_r <= (j_tiles < 1) ? 1 : j_tiles;
+            i_tiles_rm1 <= i_tiles - 1;
+        end
+    end
 
     // FSM STATES
     localparam logic [2:0] S_IDLE       = 3'd0;
@@ -27,9 +46,9 @@ module accelerator(
 
     word_t [2:0] v_half [`N_PAD-1:0];
 
-    logic pos_v [`NUMPIPES-1:0];
-    logic acc_v [`NUMPIPES-1:0];
-    logic vel_v [`NUMPIPES-1:0];
+    logic pos_v [NUMPIPES-1:0];
+    logic acc_v [NUMPIPES-1:0];
+    logic vel_v [NUMPIPES-1:0];
 
     logic kd_restart, fe_restart, sk_restart;
     logic kd_done, fe_done, sk_done;
@@ -81,16 +100,16 @@ module accelerator(
     // (the connection is resolved at elaboration time, before jump has a
     // value), so each lane drives a fixed (genvar-indexed) wire here and a
     // always_ff scatters it into the padded array using jump
-    word_t [2:0] r_new_lane [`NUMPIPES-1:0];
-    word_t [2:0] v_half_lane [`NUMPIPES-1:0];
+    word_t [2:0] r_new_lane [NUMPIPES-1:0];
+    word_t [2:0] v_half_lane [NUMPIPES-1:0];
 
-    word_t [2:0] a_out_lane [`NUMPIPES-1:0];
+    word_t [2:0] a_out_lane [NUMPIPES-1:0];
 
-    word_t [2:0] v_new_lane [`NUMPIPES-1:0];
+    word_t [2:0] v_new_lane [NUMPIPES-1:0];
 
     genvar i;
     generate
-        for (i = 0; i < `NUMPIPES; i++) begin : KD
+        for (i = 0; i < NUMPIPES; i++) begin : KD
             pos_module pos_i (
                 .clk,
                 .rst,
@@ -107,14 +126,15 @@ module accelerator(
     endgenerate
 
     generate
-        for (i = 0; i < `NUMPIPES; i++) begin : FE
-            accel_module acc_i (
+        for (i = 0; i < NUMPIPES; i++) begin : FE
+            accel_module #(.NUMLANES(NUMLANES)) acc_i (
                 .clk,
                 .rst,
                 .restart(fe_restart),
                 .r_new(next_state.r),
                 .m(cur_state.m),
                 .p_i($clog2(`N_PAD)'(jump+i)),
+                .j_tiles(j_tiles_r),
                 .a_out(a_out_lane[i]),
                 .acc_valid(acc_v[i])
             );
@@ -122,7 +142,7 @@ module accelerator(
     endgenerate
 
     generate
-        for (i = 0; i < `NUMPIPES; i++) begin : SK
+        for (i = 0; i < NUMPIPES; i++) begin : SK
             vel_module vel_i (
                 .clk,
                 .rst,
@@ -153,7 +173,7 @@ module accelerator(
         end
 
         if (fsm == S_KICKDRIFT && kd_done) begin
-            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+            for (int lane = 0; lane < NUMPIPES; lane++) begin
                 next_state.r[jump+lane] <= r_new_lane[lane];
                 v_half[jump+lane] <= v_half_lane[lane];
                 next_state.m[jump+lane] <= cur_state.m[jump+lane];
@@ -161,13 +181,13 @@ module accelerator(
         end
 
         if (fsm == S_FORCE && fe_done) begin
-            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+            for (int lane = 0; lane < NUMPIPES; lane++) begin
                 next_state.a[jump+lane] <= a_out_lane[lane];
             end
         end
 
         if (fsm == S_SECONDKICK && sk_done) begin
-            for (int lane = 0; lane < `NUMPIPES; lane++) begin
+            for (int lane = 0; lane < NUMPIPES; lane++) begin
                 next_state.v[jump+lane] <= v_new_lane[lane];
             end
         end
@@ -178,13 +198,13 @@ module accelerator(
     logic last_cycle;
 
     always_comb begin
-        jump = cycle_ctr*`NUMPIPES;
+        jump = cycle_ctr*NUMPIPES;
 
         kd_done = pos_v[0];
         fe_done = acc_v[0];
         sk_done = vel_v[0];
         more_steps = state_counter < num_total_steps_m1;
-        last_cycle = (cycle_ctr == num_cycles-1);
+        last_cycle = (cycle_ctr == i_tiles_rm1);
 
         kd_restart = 0;
         fe_restart = 0;

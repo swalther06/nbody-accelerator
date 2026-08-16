@@ -26,10 +26,14 @@ typedef logic signed [`QWORDBITS-1:0] qword_t;
 
 
 // PIPE PARALLELIZATION - number of bodies processed at once
+`ifndef NUMPIPES
 `define NUMPIPES 10
+`endif
 
 // LANE PARALLELIZATION - number of accelerations calculated at once
+`ifndef NUMLANES
 `define NUMLANES 1
+`endif
 
 // PADDING FOR N
 `define N_PAD1 (((`N + `NUMPIPES - 1) / `NUMPIPES) * `NUMPIPES)

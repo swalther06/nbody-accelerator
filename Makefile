@@ -44,13 +44,29 @@ refsim: sw_metrics
 # ns/step and ns/pair are meaningless without it.
 PERIOD ?= $(shell cat synthesis/clock 2>/dev/null || echo 2.5)
 
+# TECH selects the standard cell library in synthesis/synth.tcl:
+#   lec25     TSMC 250nm educational (default, the only one with no strings)
+#   n16       TSMC 16nm ADFP -- foundry PDK, check its TERMS_AND_CONDITIONS pdf
+#   freepdk45 Nangate 45nm Open Cell Library, expected under $TECH_HOME (~/tech)
+TECH ?= lec25
+
 # N=<count> overrides the body count for BOTH sides of the comparison. It has to
 # reach every compile that sees definitions.h/defs.svh -- including gen_st_init,
 # since st_init.mem's field layout is N-dependent and a mismatch between the
 # generator and the testbench corrupts the initial state silently. Unset leaves
 # each header's own default alone.
+# N / PIPES / LANES override the guarded macros in defs.svh (and definitions.h
+# for N) without editing either file. They must reach every consumer that sees
+# those headers -- gcc, VCS, AND dc_shell -- or the benchmark and the area
+# report end up describing different designs.
 NDEF_C  := $(if $(N),-DN=$(N),)
-NDEF_SV := $(if $(N),+define+N=$(N),)
+NDEF_SV := $(strip $(if $(N),+define+N=$(N),) \
+                   $(if $(PIPES),+define+NUMPIPES=$(PIPES),) \
+                   $(if $(LANES),+define+NUMLANES=$(LANES),))
+# dc_shell wants a Tcl list of NAME=value, consumed by synth.tcl's rtl_defines
+RTL_DEFINES := $(strip $(if $(N),N=$(N),) \
+                       $(if $(PIPES),NUMPIPES=$(PIPES),) \
+                       $(if $(LANES),NUMLANES=$(LANES),))
 
 # STEPS=<n> sets the timestep count on BOTH sides (default 1500, i.e. the RTL's
 # tend=15.0 at dt=0.01). This is the knob for a faster run: cycles/step is a
@@ -116,7 +132,7 @@ accel_unit_tb:
 
 synth:
 	mkdir -p synthesis/build
-	cd synthesis/build && dc_shell -x "set script_dir .." -f ../synth.tcl | tee ../synth.log
+	cd synthesis/build && dc_shell -x "set script_dir ..; set rtl_defines {$(RTL_DEFINES)}; set tech $(TECH)" -f ../synth.tcl | tee ../synth.log
 
 syn_search:
 	tmux new-session -d -s syn_search 'bash synthesis/find_min_period.sh; echo "--- done, press enter to close ---"; read'
