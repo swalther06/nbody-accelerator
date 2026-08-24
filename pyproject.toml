@@ -1,16 +1,20 @@
 [project]
-name = "orbital-accelerator"
+name = "nbody-accelerator"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.14"
+description = "Modeling and verification tooling for a hardware N-body gravity accelerator"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
-    "imageio>=2.37.3",
-    "imageio-ffmpeg>=0.6.0",
-    "matplotlib>=3.11.0",
-    "numpy>=2.4.6",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
 ]
 
 [dependency-groups]
 dev = [
-    "verilator>=5.48.0",
+    "verilator>=5.48.0",   # keep only if you add a lint/sim target
 ]
+
+[tool.uv]
+package = false
