@@ -36,4 +36,6 @@ synthesis/*.log
 synthesis/logs/
 synthesis/report/
 
+FM_INFO/
+
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Shim: mflowgen's synopsys-dc-synthesis/run.sh hardcodes `dc_shell-xg-t`, a
+# legacy binary name. CAEN ships only `dc_shell` (a modexec wrapper), which on
+# any modern DC is the same thing -- XG mode and Tcl are defaults now, so the
+# -xg-t suffix no longer names a distinct executable.
+#
+# Temporary: when we build our own design directory we override the DC node and
+# set dc_exec properly, at which point this can go.
+# Absolute path on purpose. The Synopsys module puts its own bin directory on
+# PATH, so a bare `dc_shell` here could resolve to the same broken installation
+# rather than CAEN's modexec wrapper -- which is the one known to work, since
+# `make synth` drives the whole design through it.
+exec /usr/caen/bin/dc_shell "$@"

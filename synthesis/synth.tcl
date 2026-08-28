@@ -12,17 +12,7 @@ if {![info exists script_dir]} { set script_dir "." }
 
 set design_name accelerator
 
-set SOURCES [list \
-    $script_dir/../rtl/newton_lut.sv \
-    $script_dir/../rtl/rsqrt_newton_step.sv \
-    $script_dir/../rtl/inv_pwr_3d2_unit.sv \
-    $script_dir/../rtl/accel_unit.sv \
-    $script_dir/../rtl/accel_module.sv \
-    $script_dir/../rtl/pos_module.sv \
-    $script_dir/../rtl/vel_module.sv \
-    $script_dir/../rtl/integrator.sv \
-    $script_dir/../rtl/accelerator.sv \
-]
+set SOURCES [glob $script_dir/../rtl/*.sv]
 
 # Read clock period (ns) from the "clock" file next to this script
 set fp [open "$script_dir/clock" r]

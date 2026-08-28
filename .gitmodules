@@ -3,4 +3,4 @@
 	url = https://github.com/mflowgen/freepdk-45nm.git
 [submodule "tech/mflowgen"]
 	path = tech/mflowgen
-	url = https://github.com/mflowgen/mflowgen.git
+	url = git@github.com:swalther06/mflowgen.git
