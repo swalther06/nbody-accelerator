@@ -185,13 +185,6 @@ More orbits will likely be added in the future for larger workloads and cool con
 3. **Performance characterization.** Run at target clock on real hardware, measure interactions/second, and compare against GPU baselines on perf/$ and perf/W. Climb the N-ladder: small configs for correctness, then N=1000+ for throughput.
 4. **Barnes–Hut (future).** Past N ≈ 10⁴ the O(N²) kernel hits a wall. Tree traversal gets to O(N log N) but reintroduces branching and irregular memory access - exactly the heterogeneity this design avoids. An architectural decision, not a near-term task.
 
-## Verification discipline (carried forward)
-
-- Every RTL block gets a testbench that diffs bit-for-bit against the corresponding C function. Integer arithmetic means exact equality, not "close."
-- Build the instrument before the thing it measures. Every silent bug in this project's history — the energy climb, twice — was found by **measurement**: the energy check and the rsqrt sweep. None was found by reading code. Floating-point error is ~1e-15 and random; real bugs are large and systematic.
-- Pipelining, retiming, and critical-path concerns live in RTL and are modeled cycle-accurately by the simulator. They never enter the value models.
-- SystemVerilog computes a product in the operand width and truncates *before* the shift, so `(y*y) >> SEEDFRAC` on 64-bit operands silently loses the high bits. Every product goes to a wider (`qword_t`) temporary first. Types are signed — positions go negative, and `>>>` on a signed type sign-extends, which the negative-exponent shifts require.
-
 ## North star
 
-This project independently re-derived the **GRAPE** architecture (GRAvity PipE, University of Tokyo): a pure force-evaluation coprocessor that won Gordon Bell prizes by doing one uniform kernel and exiling everything heterogeneous — integration, tree traversal, I/O — to a host. GRAPE-on-FPGA already exists in the PROGRAPE line, so a GRAPE-style force engine on reconfigurable hardware is a validated path. The deviation here is folding the display on-chip, trading a little homogeneity for needing no host computer at all.
+This project independently re-derived the **GRAPE** architecture (GRAvity PipE, University of Tokyo): a pure force-evaluation coprocessor that won Gordon Bell prizes by doing one uniform kernel and exiling everything heterogeneous to a host. GRAPE-on-FPGA already exists in the PROGRAPE line, so a GRAPE-style force engine on reconfigurable hardware is a validated path. The deviation here is folding the display on-chip, trading a little homogeneity for needing no host computer at all.
