@@ -44,7 +44,7 @@ The barrier rule is **read-all-before-write-any**: every acceleration depends on
 Parallelism lives on two independent, asymmetric axes:
 
 | Parameter | Axis |
-| --- | --- | --- |
+| --- | --- |
 | `NUMPIPES` | Parallelism in the state calculation of individual particles |
 | `NUMLANES` | Inter-pipe acceleration calculation parallelization |
 
